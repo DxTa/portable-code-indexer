@@ -91,7 +91,15 @@ def init(path: str):
 @click.option(
     "--clean", is_flag=True, help="Delete existing index and cache, then rebuild from scratch"
 )
-def index(path: str, update: bool, clean: bool):
+@click.option(
+    "--parallel/--no-parallel",
+    default=False,
+    help="Use parallel processing (experimental, best for 100+ files)",
+)
+@click.option(
+    "--workers", type=int, default=None, help="Number of worker processes (default: CPU count)"
+)
+def index(path: str, update: bool, clean: bool, parallel: bool, workers: int | None):
     """Index codebase for search."""
     pci_dir = Path(".pci")
     if not pci_dir.exists():
@@ -173,8 +181,11 @@ def index(path: str, update: bool, clean: bool):
                         f"{summary.stale_chunks:,} stale ({summary.staleness_ratio:.1%})"
                     )
             else:
-                # Full indexing
-                stats = coordinator.index_directory(directory)
+                # Full indexing (parallel by default)
+                if parallel:
+                    stats = coordinator.index_directory_parallel(directory, max_workers=workers)
+                else:
+                    stats = coordinator.index_directory(directory)
                 progress.update(task, completed=True)
 
                 console.print(f"\n[green]✓ Indexing complete[/green]")

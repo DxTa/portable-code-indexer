@@ -276,21 +276,29 @@ pci import archive.tar.gz
 
 ## Priority 8: Performance Optimization
 
-### Benchmark Targets
+### Benchmark Results (v2.3)
 
-| Operation | Current | Target | Notes |
-|-----------|---------|--------|-------|
-| Index 1k files | ~10s | <5s | Parallel chunking |
-| Search (lexical) | ~100ms | <50ms | Optimize BM25 |
-| Search (semantic) | ~500ms | <200ms | Batch embeddings |
-| Incremental update | ~1s | <500ms | Hash cache only |
+| Operation | Baseline | Optimized | Notes |
+|-----------|----------|-----------|-------|
+| Index 14 files | 15.2s (0.9 files/s) | 15.2s | Parallel has overhead for small sets |
+| Index 100+ files | ~100s | TBD | Parallel should help here |
+| Search (lexical) | ~100ms | <50ms | TODO: Optimize BM25 |
+| Search (semantic) | ~500ms | <200ms | TODO: Batch embeddings |
 
-### Optimization Strategies
+### Completed Optimizations (v2.3)
 
-1. **Parallel Chunking:** Use process pool for file parsing
+1. ✅ **Parallel Chunking:** ProcessPoolExecutor for file parsing
+   - Added `--parallel` flag with `--workers` option
+   - Default: disabled (overhead dominates for <100 files)
+   - Recommended: Enable for large codebases (100+ files)
+   - Bottleneck: Memvid storage serializes in main process
+
+### Remaining Optimization Opportunities
+
 2. **Batch Embeddings:** Group chunks for API efficiency
 3. **Caching:** Memoize parser results for unchanged files
 4. **Index Sharding:** Split large codebases across indices
+5. **Async Storage:** Non-blocking writes to Memvid
 
 ## Timeline
 

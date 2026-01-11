@@ -4,6 +4,8 @@ from pathlib import Path
 import hashlib
 import logging
 import time
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import cast
 
 import pathspec
@@ -17,6 +19,39 @@ from .chunk_index import ChunkIndex
 from .metrics import PerformanceMetrics
 
 logger = logging.getLogger(__name__)
+
+
+def _chunk_file_worker(
+    file_path: Path, chunking_config: CASTConfig
+) -> tuple[Path, list, str | None, int]:
+    """Worker function for parallel file chunking.
+
+    This runs in a separate process, so it must be a module-level function.
+
+    Args:
+        file_path: Path to file to chunk
+        chunking_config: Chunking configuration
+
+    Returns:
+        Tuple of (file_path, chunks, error, file_size)
+    """
+    try:
+        from ..core.types import Language
+        from ..parser.chunker import CASTChunker
+
+        language = Language.from_extension(file_path.suffix)
+        chunker = CASTChunker(chunking_config)
+
+        if not chunker.engine.is_supported(language):
+            return file_path, [], None, 0
+
+        chunks = chunker.chunk_file(file_path, language)
+        file_size = file_path.stat().st_size if file_path.exists() else 0
+
+        return file_path, chunks, None, file_size
+
+    except Exception as e:
+        return file_path, [], str(e), 0
 
 
 class IndexingCoordinator:
@@ -141,6 +176,88 @@ class IndexingCoordinator:
         metrics.finish()
         stats["metrics"] = metrics.to_dict()
         logger.info(f"Indexing complete: {metrics}")
+
+        return stats
+
+    def index_directory_parallel(self, directory: Path, max_workers: int | None = None) -> dict:
+        """Index all files in a directory using parallel processing.
+
+        Args:
+            directory: Root directory to index
+            max_workers: Number of worker processes (default: CPU count)
+
+        Returns:
+            Statistics dictionary
+        """
+        # Start performance tracking
+        metrics = PerformanceMetrics()
+
+        # Discover files
+        files = self._discover_files(directory)
+
+        stats = {
+            "total_files": len(files),
+            "indexed_files": 0,
+            "total_chunks": 0,
+            "errors": [],
+            "metrics": None,
+        }
+
+        # Default to CPU count
+        if max_workers is None:
+            max_workers = os.cpu_count() or 4
+
+        logger.info(f"Starting parallel indexing with {max_workers} workers")
+
+        # Get chunking config for workers
+        chunking_config = CASTConfig(
+            max_chunk_size=self.config.chunking.max_chunk_size,
+            min_chunk_size=self.config.chunking.min_chunk_size,
+            merge_threshold=self.config.chunking.merge_threshold,
+            greedy_merge=self.config.chunking.greedy_merge,
+        )
+
+        # Process files in parallel
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_file = {
+                executor.submit(_chunk_file_worker, file_path, chunking_config): file_path
+                for file_path in files
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_file):
+                try:
+                    file_path, chunks, error, file_size = future.result()
+
+                    if error:
+                        stats["errors"].append(f"{file_path}: {error}")
+                        metrics.errors_count += 1
+                        continue
+
+                    if chunks:
+                        # Track metrics
+                        metrics.bytes_processed += file_size
+
+                        # Store chunks
+                        self.backend.store_chunks_batch(chunks)
+                        stats["indexed_files"] += 1
+                        stats["total_chunks"] += len(chunks)
+                        metrics.files_processed += 1
+                        metrics.chunks_created += len(chunks)
+                        logger.info(f"Indexed {file_path}: {len(chunks)} chunks")
+
+                except Exception as e:
+                    file_path = future_to_file[future]
+                    error_msg = f"Unexpected error: {str(e)}"
+                    stats["errors"].append(f"{file_path}: {error_msg}")
+                    metrics.errors_count += 1
+                    logger.exception(f"Unexpected error processing {file_path}")
+
+        # Finalize metrics
+        metrics.finish()
+        stats["metrics"] = metrics.to_dict()
+        logger.info(f"Parallel indexing complete: {metrics}")
 
         return stats
 
