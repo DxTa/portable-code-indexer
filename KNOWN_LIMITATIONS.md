@@ -1,60 +1,77 @@
 # Known Limitations
 
-## Chunk Accumulation Issue
+## ✅ Chunk Accumulation Issue - SOLVED in v2.0!
 
-### What Happens
-When you modify a file and run incremental indexing (`pci index --update`), new chunks are added to the index but **old chunks from the previous version are not removed**. This is because the underlying Memvid storage engine does not support deletion of individual documents.
+### Problem (v1.0)
+In v1.0, when you modified a file and ran incremental indexing, new chunks were added but old chunks couldn't be removed due to Memvid's append-only architecture. This caused index bloat and stale search results.
 
-### Impact
-- Index size grows with each modification (not with codebase size)
-- Search results may include outdated code from previous file versions
-- Over time, search quality may degrade as stale results accumulate
+### Solution (v2.0)
+**v2.0 introduces Chunk Metadata Sidecar** which solves this problem through:
 
-### Example
+1. **Chunk Tracking** - Maintains `chunk_index.json` tracking which chunks are valid vs stale
+2. **Query-Time Filtering** - Automatically filters stale chunks from search results
+3. **Index Compaction** - `pci compact` command removes stale chunks from index
+
+### How It Works (v2.0)
+
 ```bash
 # Initial index: 100 files → 500 chunks
 pci index .
 
 # Modify 10 files, run incremental update
 pci index --update
-# Result: 510 chunks (500 old + 10 new)
-# The original 10 chunks for those files still exist
+# Result: Chunk index tracks:
+#   - 490 valid chunks (from 90 unchanged files)
+#   - 10 new valid chunks (from modified files)
+#   - 10 stale chunks (old versions of modified files)
+# Searches automatically filter out the 10 stale chunks!
 
-# After 10 modifications to same files
-# Result: 600 chunks (500 original + 100 from updates)
-# Stale percentage: 100/600 = 16%
+# Check index health
+pci status
+# Shows: 500 valid, 10 stale (2% staleness) 🟢 Healthy
+
+# After many modifications
+pci status
+# Shows: 500 valid, 150 stale (23% staleness) 🟠 Degraded
+# Recommendation: Run 'pci compact'
+
+# Compact to remove stale chunks
+pci compact
+# Rebuilds index with only valid chunks
+# Result: 500 total chunks (150 stale removed)
 ```
 
-### When This Matters
-- Active development with frequent file modifications
-- Long-running projects without periodic cleanup
-- When search results seem outdated or duplicated
-- If index size grows unexpectedly large
-
-### Recommended Workaround
-
-Periodically perform a clean reindex:
-
-```bash
-pci index . --clean
-```
-
-This deletes the existing index and cache, then rebuilds from scratch.
-
-**Recommended frequency:**
-- **Weekly** for active development (frequent code changes)
-- **Monthly** for stable projects (occasional updates)
-- **After major refactoring** (many files modified)
-
-### Monitoring Staleness
-
-Use `pci status` to check index age and size:
+### Monitoring Staleness (v2.0)
 
 ```bash
 pci status
 ```
 
-The status command will warn you if the index is older than 30 days and recommend running `--clean`.
+Output includes:
+- **Total Chunks**: All chunks in index
+- **Valid Chunks**: Current, active chunks
+- **Stale Chunks**: Outdated chunks from modified files
+- **Staleness Ratio**: Percentage of stale chunks
+- **Health Status**: 🟢 Healthy / 🟡 Acceptable / 🟠 Degraded / 🔴 Critical
+
+### Managing Staleness (v2.0)
+
+**Option 1: Compaction (Recommended)**
+```bash
+pci compact  # Compact if >20% stale
+pci compact --threshold 0.1  # Compact if >10% stale
+pci compact --force  # Force compaction now
+```
+
+**Option 2: Clean Rebuild**
+```bash
+pci index . --clean  # Delete everything and rebuild
+```
+
+**When to compact:**
+- When `pci status` shows 🟠 Degraded or 🔴 Critical
+- When staleness ratio > 20%
+- After major refactoring with many file changes
 
 ### Technical Details
 

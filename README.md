@@ -1,16 +1,19 @@
 # PCI - Portable Code Index
 
-Local-first codebase intelligence using Memvid storage and cAST semantic chunking.
+**v2.0** - Production-grade local-first codebase intelligence with automatic stale chunk management.
 
 ## Features
 
 - **cAST Algorithm** - Semantic code chunking via Abstract Syntax Tree
-- **Multi-Hop Semantic Search** - Discovers interconnected code relationships
+- **Multi-Hop Code Research** - Automatically discovers interconnected code relationships
+- **Chunk Metadata Sidecar (v2.0)** - Tracks valid/stale chunks, filters outdated code from results
+- **Index Compaction (v2.0)** - `pci compact` removes stale chunks, keeps index healthy
 - **Semantic Search** - Natural language queries like "find authentication code"
 - **Regex/Lexical Search** - Pattern matching without API keys
 - **Local-First** - All code stays on your machine
 - **30 Languages** - Comprehensive language support via Tree-sitter
 - **Portable** - Single .mv2 file storage (no database required)
+- **Performance Metrics** - Real-time indexing throughput tracking
 
 ## Installation
 
@@ -30,8 +33,14 @@ pci index .
 # Incremental re-index (only changed files)
 pci index --update
 
-# Clean rebuild (recommended periodically)
+# Clean rebuild (removes everything and rebuilds)
 pci index --clean
+
+# Check index health (v2.0)
+pci status
+
+# Compact index to remove stale chunks (v2.0)
+pci compact
 
 # Search semantically
 pci search "find authentication logic"
@@ -41,9 +50,6 @@ pci search --regex "def.*auth"
 
 # Multi-hop code research
 pci research "how does the API handle errors?"
-
-# Show statistics
-pci status
 ```
 
 For comprehensive usage examples, see [EXAMPLES.md](EXAMPLES.md).
@@ -95,14 +101,16 @@ Text files, PDF
 - **Embeddings**: Local (bge-small) or OpenAI/Voyage
 - **Search**: Hybrid (BM25 + vector similarity)
 
-## Known Limitations
+## v2.0 - Solved Chunk Accumulation Problem!
 
-PCI has some architectural limitations you should be aware of:
+PCI v2.0 introduces **Chunk Metadata Sidecar** which solves the chunk accumulation problem:
 
-- **Chunk Accumulation:** Modified files create new chunks without deleting old ones. Use `pci index --clean` periodically to rebuild the index.
-- **Staleness Warning:** Run `pci status` to check index age and receive maintenance recommendations.
+- ✅ **Automatic Stale Filtering** - Searches automatically exclude outdated chunks
+- ✅ **Index Compaction** - `pci compact` removes stale chunks and reduces index size
+- ✅ **Health Monitoring** - `pci status` shows staleness metrics and recommendations
+- ✅ **Production Ready** - No more unbounded index growth!
 
-See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for detailed information and workarounds.
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for migration details from v1.0.
 
 ## Future Enhancements
 
