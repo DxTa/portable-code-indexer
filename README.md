@@ -46,6 +46,8 @@ pci research "how does the API handle errors?"
 pci status
 ```
 
+For comprehensive usage examples, see [EXAMPLES.md](EXAMPLES.md).
+
 ## Configuration
 
 Configuration is stored in `.pci/config.json`:
