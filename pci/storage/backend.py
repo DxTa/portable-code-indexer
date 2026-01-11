@@ -87,13 +87,12 @@ class MemvidBackend:
                 }
             )
 
-        # Enable embeddings if OpenAI key available
-        # Falls back to lexical-only if quota exceeded
+        # Disable embeddings for now (quota limited)
+        # Can re-enable when OpenAI credits available
         frame_ids = self.mem.put_many(
             docs,
             opts={
-                "enable_embedding": True,
-                "embedding_model": "openai-small",  # text-embedding-3-small
+                "enable_embedding": False,
             },
         )
         return [ChunkId(str(fid)) for fid in frame_ids]

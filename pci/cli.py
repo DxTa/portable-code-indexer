@@ -82,22 +82,22 @@ def index(path: str, update: bool):
         console=console,
     ) as progress:
         task = progress.add_task("Discovering files...", total=None)
-        
+
         try:
             stats = coordinator.index_directory(directory)
             progress.update(task, completed=True)
-            
+
             console.print(f"\n[green]✓ Indexing complete[/green]")
             console.print(f"  Files indexed: {stats['indexed_files']}/{stats['total_files']}")
             console.print(f"  Total chunks: {stats['total_chunks']}")
-            
-            if stats['errors']:
+
+            if stats["errors"]:
                 console.print(f"\n[yellow]Warnings:[/yellow]")
-                for error in stats['errors'][:5]:  # Show first 5 errors
+                for error in stats["errors"][:5]:  # Show first 5 errors
                     console.print(f"  {error}")
-                if len(stats['errors']) > 5:
+                if len(stats["errors"]) > 5:
                     console.print(f"  ... and {len(stats['errors']) - 5} more")
-                    
+
         except Exception as e:
             console.print(f"[red]Error during indexing: {e}[/red]")
             sys.exit(1)
@@ -141,10 +141,84 @@ def search(query: str, regex: bool, limit: int):
 
 @main.command()
 @click.argument("question")
-def research(question: str):
-    """Multi-hop code research."""
-    console.print("[yellow]Research feature not yet implemented[/yellow]")
-    console.print("[dim]Coming soon: Multi-hop semantic search[/dim]")
+@click.option("--hops", type=int, default=2, help="Maximum relationship hops")
+@click.option("--graph", is_flag=True, help="Show call graph")
+@click.option("-k", "--limit", type=int, default=5, help="Results per hop")
+def research(question: str, hops: int, graph: bool, limit: int):
+    """Multi-hop code research for architectural questions.
+
+    Automatically discovers code relationships and builds a complete picture.
+
+    Examples:
+        pci research "How does authentication work?"
+        pci research "What calls the indexer?" --graph
+        pci research "How is configuration loaded?" --hops 3
+    """
+    pci_dir = Path(".pci")
+    if not pci_dir.exists():
+        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+        sys.exit(1)
+
+    from .search.multi_hop import MultiHopSearchStrategy
+
+    backend = MemvidBackend(pci_dir / "index.mv2")
+    backend.open_index()
+
+    strategy = MultiHopSearchStrategy(backend, max_hops=hops)
+
+    console.print(f"[dim]Researching: {question}[/dim]")
+    console.print(f"[dim]Max hops: {hops}, Results per hop: {limit}[/dim]\n")
+
+    with Progress(
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console
+    ) as progress:
+        task = progress.add_task("Analyzing code relationships...", total=None)
+        result = strategy.research(question, max_results_per_hop=limit)
+        progress.update(task, completed=True)
+
+    # Display results summary
+    console.print(f"\n[bold green]✓ Research Complete[/bold green]")
+    console.print(f"  Found: {len(result.chunks)} related code chunks")
+    console.print(f"  Relationships: {len(result.relationships)}")
+    console.print(f"  Entities discovered: {result.total_entities_found}")
+    console.print(f"  Hops executed: {result.hops_executed}/{hops}\n")
+
+    if not result.chunks:
+        console.print("[yellow]No relevant code found. Try rephrasing your question.[/yellow]")
+        return
+
+    # Display top chunks
+    console.print("[bold]Top Related Code:[/bold]\n")
+    for i, chunk in enumerate(result.chunks[:10], 1):
+        console.print(f"{i}. [cyan]{chunk.symbol}[/cyan]")
+        console.print(f"   {chunk.file_path}:{chunk.start_line}-{chunk.end_line}")
+        if i <= 3:  # Show code preview for top 3
+            preview = chunk.code[:200].replace("\n", "\n   ")
+            console.print(f"   [dim]{preview}...[/dim]")
+        console.print()
+
+    # Show call graph if requested
+    if graph and result.relationships:
+        call_graph = strategy.build_call_graph(result.relationships)
+        entry_points = strategy.get_entry_points(result.relationships)
+
+        console.print("\n[bold]Call Graph:[/bold]\n")
+
+        if entry_points:
+            console.print("[dim]Entry points:[/dim]")
+            for entry in entry_points[:5]:
+                console.print(f"  [green]→ {entry}[/green]")
+            console.print()
+
+        console.print("[dim]Relationships:[/dim]")
+        for entity, targets in list(call_graph.items())[:15]:
+            console.print(f"  {entity}")
+            for target in targets[:3]:
+                rel_type = target["type"].replace("_", " ")
+                console.print(f"    [dim]{rel_type}[/dim] → {target['target']}")
+
+        if len(call_graph) > 15:
+            console.print(f"\n  [dim]... and {len(call_graph) - 15} more entities[/dim]")
 
 
 @main.command()
