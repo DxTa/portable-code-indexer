@@ -243,6 +243,9 @@ def research(question: str, hops: int, graph: bool, limit: int):
 @main.command()
 def status():
     """Show index statistics."""
+    import datetime
+    import json
+
     pci_dir = Path(".pci")
     if not pci_dir.exists():
         console.print("[red]Error: PCI not initialized[/red]")
@@ -258,7 +261,46 @@ def status():
     table.add_row("Index Path", str(stats["path"]))
     table.add_row("Exists", "Yes" if stats["exists"] else "No")
 
+    # Cache statistics
+    cache_path = pci_dir / "cache" / "file_hashes.json"
+    if cache_path.exists():
+        try:
+            cache_data = json.loads(cache_path.read_text())
+            cache_size = cache_path.stat().st_size
+            table.add_row("", "")  # Separator
+            table.add_row("Cached Files", str(len(cache_data)))
+            table.add_row("Cache Size", f"{cache_size:,} bytes")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Index age and size
+    index_path = pci_dir / "index.mv2"
+    if index_path.exists():
+        try:
+            stat = index_path.stat()
+            mtime = datetime.datetime.fromtimestamp(stat.st_mtime)
+            age = datetime.datetime.now() - mtime
+            table.add_row("", "")  # Separator
+            table.add_row("Index Size", f"{stat.st_size:,} bytes")
+            table.add_row("Index Age", f"{age.days} days, {age.seconds // 3600} hours")
+        except OSError:
+            pass
+
     console.print(table)
+
+    # Staleness warning
+    if index_path.exists():
+        try:
+            stat = index_path.stat()
+            mtime = datetime.datetime.fromtimestamp(stat.st_mtime)
+            age = datetime.datetime.now() - mtime
+            if age.days > 30:
+                console.print("\n[yellow]⚠️  Warning: Index is over 30 days old.[/yellow]")
+                console.print(
+                    "[dim]Consider running 'pci index --clean' to rebuild fresh index.[/dim]"
+                )
+        except OSError:
+            pass
 
 
 @main.command()
