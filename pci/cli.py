@@ -1,6 +1,7 @@
 """CLI entry point for PCI."""
 
 import sys
+import logging
 from pathlib import Path
 
 import click
@@ -15,14 +16,25 @@ from .storage.backend import MemvidBackend
 console = Console()
 
 
+def setup_logging(verbose: bool = False):
+    """Configure logging based on verbosity."""
+    level = logging.DEBUG if verbose else logging.WARNING
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
+
+
 @click.group()
 @click.version_option(version="0.1.0")
-def main():
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
+def main(verbose: bool):
     """PCI - Portable Code Index
 
     Local-first codebase intelligence with semantic search.
     """
-    pass
+    setup_logging(verbose)
 
 
 @main.command()
