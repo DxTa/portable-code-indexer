@@ -129,17 +129,28 @@ def index(path: str, update: bool, clean: bool):
 
         try:
             if update:
-                # Incremental indexing with hash cache
+                # Incremental indexing with hash cache and chunk index (v2.0)
                 from .indexer.hash_cache import HashCache
+                from .indexer.chunk_index import ChunkIndex
 
                 cache = HashCache(pci_dir / "cache" / "file_hashes.json")
-                stats = coordinator.index_directory_incremental(directory, cache)
+                chunk_index = ChunkIndex(pci_dir / "chunk_index.json")
 
-                console.print(f"\n[green]✓ Incremental indexing complete[/green]")
+                stats = coordinator.index_directory_incremental_v2(directory, cache, chunk_index)
+
+                console.print(f"\n[green]✓ Incremental indexing complete (v2.0)[/green]")
                 console.print(f"  Changed files: {stats['changed_files']}")
                 console.print(f"  Skipped files: {stats['skipped_files']}")
                 console.print(f"  Indexed files: {stats['indexed_files']}/{stats['total_files']}")
                 console.print(f"  Total chunks: {stats['total_chunks']}")
+
+                # Show staleness info
+                summary = chunk_index.get_staleness_summary()
+                if summary.total_chunks > 0:
+                    console.print(
+                        f"  Index health: {summary.valid_chunks:,} valid, "
+                        f"{summary.stale_chunks:,} stale ({summary.staleness_ratio:.1%})"
+                    )
             else:
                 # Full indexing
                 stats = coordinator.index_directory(directory)
@@ -175,18 +186,33 @@ def index(path: str, update: bool, clean: bool):
 @click.argument("query")
 @click.option("--regex", is_flag=True, help="Use regex/lexical search instead of semantic")
 @click.option("-k", "--limit", type=int, default=10, help="Number of results")
-def search(query: str, regex: bool, limit: int):
+@click.option("--no-filter", is_flag=True, help="Disable stale chunk filtering")
+def search(query: str, regex: bool, limit: int, no_filter: bool):
     """Search the codebase."""
+    from .indexer.chunk_index import ChunkIndex
+
     pci_dir = Path(".pci")
     if not pci_dir.exists():
         console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
         sys.exit(1)
 
-    backend = MemvidBackend(pci_dir / "index.mv2")
+    # Load chunk index for filtering (if available and not disabled)
+    valid_chunks = None
+    if not no_filter:
+        chunk_index_path = pci_dir / "chunk_index.json"
+        if chunk_index_path.exists():
+            try:
+                chunk_index = ChunkIndex(chunk_index_path)
+                valid_chunks = chunk_index.get_valid_chunks()
+            except Exception:
+                pass  # Silently fall back to no filtering
+
+    backend = MemvidBackend(pci_dir / "index.mv2", valid_chunks=valid_chunks)
     backend.open_index()
 
     mode = "lexical" if regex else "semantic"
-    console.print(f"[dim]Searching ({mode})...[/dim]")
+    filter_status = "" if no_filter or not valid_chunks else " [filtered]"
+    console.print(f"[dim]Searching ({mode}{filter_status})...[/dim]")
 
     if regex:
         results = backend.search_lexical(query, k=limit)
@@ -212,7 +238,8 @@ def search(query: str, regex: bool, limit: int):
 @click.option("--hops", type=int, default=2, help="Maximum relationship hops")
 @click.option("--graph", is_flag=True, help="Show call graph")
 @click.option("-k", "--limit", type=int, default=5, help="Results per hop")
-def research(question: str, hops: int, graph: bool, limit: int):
+@click.option("--no-filter", is_flag=True, help="Disable stale chunk filtering")
+def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool):
     """Multi-hop code research for architectural questions.
 
     Automatically discovers code relationships and builds a complete picture.
@@ -222,14 +249,26 @@ def research(question: str, hops: int, graph: bool, limit: int):
         pci research "What calls the indexer?" --graph
         pci research "How is configuration loaded?" --hops 3
     """
+    from .indexer.chunk_index import ChunkIndex
+    from .search.multi_hop import MultiHopSearchStrategy
+
     pci_dir = Path(".pci")
     if not pci_dir.exists():
         console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
         sys.exit(1)
 
-    from .search.multi_hop import MultiHopSearchStrategy
+    # Load chunk index for filtering (if available and not disabled)
+    valid_chunks = None
+    if not no_filter:
+        chunk_index_path = pci_dir / "chunk_index.json"
+        if chunk_index_path.exists():
+            try:
+                chunk_index = ChunkIndex(chunk_index_path)
+                valid_chunks = chunk_index.get_valid_chunks()
+            except Exception:
+                pass  # Silently fall back to no filtering
 
-    backend = MemvidBackend(pci_dir / "index.mv2")
+    backend = MemvidBackend(pci_dir / "index.mv2", valid_chunks=valid_chunks)
     backend.open_index()
 
     strategy = MultiHopSearchStrategy(backend, max_hops=hops)
