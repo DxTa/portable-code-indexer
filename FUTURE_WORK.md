@@ -260,22 +260,7 @@ Different languages may need different chunking strategies:
 - **C/C++:** Header/implementation separation
 - **Java:** Class hierarchy aware
 
-## Priority 7: Integration & Tooling
-
-### MCP Server (Deferred from Roadmap)
-
-Expose PCI via Model Context Protocol for LLM integration:
-
-```bash
-pci serve --mcp
-# Exposes: code_search, code_research, index_status tools
-```
-
-### IDE Plugins
-
-- **VSCode Extension:** Inline search, hover definitions
-- **Neovim Plugin:** Telescope integration
-- **JetBrains Plugin:** Quick documentation lookup
+## Priority 7: CLI Enhancements & Tooling
 
 ### CLI Enhancements
 
@@ -290,6 +275,12 @@ pci index --watch
 pci export archive.tar.gz
 pci import archive.tar.gz
 ```
+
+### IDE Plugins (Future Consideration)
+
+- **VSCode Extension:** Inline search, hover definitions
+- **Neovim Plugin:** Telescope integration
+- **JetBrains Plugin:** Quick documentation lookup
 
 ## Priority 8: Performance Optimization
 
@@ -311,15 +302,16 @@ pci import archive.tar.gz
 
 ## Timeline
 
-| Quarter | Focus | Deliverables |
-|---------|-------|--------------|
-| Q1 2024 | Chunk Sidecar | ChunkIndex, query filtering |
-| Q2 2024 | Compaction | Auto-compact, background jobs |
-| Q3 2024 | Embeddings | Provider support, re-embed |
-| Q4 2024 | Scaling | Multi-language, performance |
+| Phase | Focus | Deliverables |
+|-------|-------|--------------|
+| Phase 1 | Chunk Sidecar | ChunkIndex, query filtering |
+| Phase 2 | Compaction | Auto-compact, background jobs |
+| Phase 3 | Embeddings | Provider support, re-embed |
+| Phase 4 | Scaling | Multi-language, performance |
 
 ## Contributing
 
-See specific implementation plans in GitHub issues tagged with `v2.0` milestone.
-
-Discussions and proposals welcome in the [Discussions](https://github.com/your-org/pci/discussions) section.
+Contributions welcome! Focus areas:
+- Tree-sitter parser additions for new languages
+- Embedding provider integrations
+- Performance optimizations
