@@ -227,43 +227,30 @@ pci config set compaction.schedule "weekly"
    - `pci reembed` command to update existing chunks
    - Hybrid search weighting configuration
 
-## Priority 6: Multi-Language Support
+## ~~Priority 6: Multi-Language Support~~ ✅ COMPLETED (v2.2)
 
-### Expand Tree-sitter Parsers
+### Implementation Status
+✅ **Completed** - 8 new languages with full Tree-sitter AST support
 
-Currently supported:
-- ✅ Python
-- ✅ JavaScript/TypeScript/JSX/TSX
+### Languages Added (v2.2)
+- ✅ **Go** - Functions, methods, structs
+- ✅ **Rust** - Functions, structs, impl blocks
+- ✅ **Java** - Classes, methods
+- ✅ **C** - Functions, structs
+- ✅ **C++** - Functions, classes (C++ specific parser)
+- ✅ **C#** - Classes, methods
+- ✅ **Ruby** - Classes, methods
+- ✅ **PHP** - Classes, functions
 
-Planned additions:
-- Go
-- Rust
-- Java
-- C/C++
-- C#
-- Ruby
-- PHP
+### Total Supported Languages (v2.2)
+**Full AST Support (12):** Python, JavaScript, TypeScript, JSX, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP
 
-### Implementation
+**Generic Concept Extractor:** Handles function/class extraction across C-like languages with common node types (function_declaration, class_declaration, method_definition, etc.)
 
-Add language-specific parser configurations in `parser/engine.py`:
-
-```python
-# Add to TreeSitterEngine
-self.parsers = {
-    Language.GO: (ts_go.language(), ts_go.language_go()),
-    Language.RUST: (ts_rust.language(), ts_rust.language_rust()),
-    # ...
-}
-```
-
-### Chunking Strategy Customization
-
-Different languages may need different chunking strategies:
-- **Python/Ruby:** Class/function-based
-- **Go:** Package/function-based
-- **C/C++:** Header/implementation separation
-- **Java:** Class hierarchy aware
+### Future Language Additions (Not Required)
+- Kotlin (already recognized, needs AST extractor)
+- Swift (already recognized, needs AST extractor)
+- Haskell (already recognized, needs AST extractor)
 
 ## Priority 7: CLI Enhancements & Tooling
 

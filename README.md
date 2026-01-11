@@ -115,14 +115,18 @@ Edit `.pci/config.json`:
 
 ## Supported Languages
 
-### Programming
-Python, JavaScript, TypeScript, JSX, TSX, Java, Kotlin, Groovy, C, C++, C#, Go, Rust, Haskell, Swift, Bash, MATLAB, Makefile, Objective-C, PHP, Vue, Svelte, Zig
+### Programming Languages (Full AST Support)
+**Actively Parsed:** Python, JavaScript, TypeScript, JSX, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP
 
-### Configuration
+**Recognized:** Kotlin, Groovy, Haskell, Swift, Bash, MATLAB, Makefile, Objective-C, Vue, Svelte, Zig
+
+### Configuration & Markup
 JSON, YAML, TOML, HCL, Markdown
 
-### Text
+### Other
 Text files, PDF
+
+**Note:** Languages with "Full AST Support" use Tree-sitter for semantic chunking (functions, classes, methods). Other recognized languages are indexed as text.
 
 ## How It Works
 

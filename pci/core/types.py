@@ -35,6 +35,7 @@ class Language(str, Enum):
     MAKEFILE = "makefile"
     OBJECTIVE_C = "objective_c"
     PHP = "php"
+    RUBY = "ruby"
     VUE = "vue"
     SVELTE = "svelte"
     ZIG = "zig"
@@ -86,6 +87,7 @@ class Language(str, Enum):
             "mk": cls.MAKEFILE,
             "objc": cls.OBJECTIVE_C,
             "php": cls.PHP,
+            "rb": cls.RUBY,
             "vue": cls.VUE,
             "svelte": cls.SVELTE,
             "zig": cls.ZIG,
