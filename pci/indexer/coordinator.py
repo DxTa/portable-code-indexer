@@ -13,6 +13,7 @@ from ..core.types import Language
 from ..parser.chunker import CASTChunker, CASTConfig
 from ..storage.backend import MemvidBackend
 from .hash_cache import HashCache
+from .metrics import PerformanceMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,9 @@ class IndexingCoordinator:
         Returns:
             Statistics dictionary
         """
+        # Start performance tracking
+        metrics = PerformanceMetrics()
+
         # Discover files
         files = self._discover_files(directory)
 
@@ -91,6 +95,7 @@ class IndexingCoordinator:
             "indexed_files": 0,
             "total_chunks": 0,
             "errors": [],
+            "metrics": None,  # Will be filled at end
         }
 
         # Process each file
@@ -107,19 +112,34 @@ class IndexingCoordinator:
 
                 if error:
                     stats["errors"].append(f"{file_path}: {error}")
+                    metrics.errors_count += 1
                     continue
 
                 if chunks:
+                    # Track file size
+                    try:
+                        metrics.bytes_processed += file_path.stat().st_size
+                    except OSError:
+                        pass
+
                     # Store chunks
                     self.backend.store_chunks_batch(chunks)
                     stats["indexed_files"] += 1
                     stats["total_chunks"] += len(chunks)
+                    metrics.files_processed += 1
+                    metrics.chunks_created += len(chunks)
                     logger.info(f"Indexed {file_path}: {len(chunks)} chunks")
 
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
                 stats["errors"].append(f"{file_path}: {error_msg}")
+                metrics.errors_count += 1
                 logger.exception(f"Unexpected error indexing {file_path}")
+
+        # Finalize metrics
+        metrics.finish()
+        stats["metrics"] = metrics.to_dict()
+        logger.info(f"Indexing complete: {metrics}")
 
         return stats
 
@@ -164,6 +184,9 @@ class IndexingCoordinator:
         Returns:
             Statistics dictionary
         """
+        # Start performance tracking
+        metrics = PerformanceMetrics()
+
         files = self._discover_files(directory)
 
         stats = {
@@ -173,6 +196,7 @@ class IndexingCoordinator:
             "indexed_files": 0,
             "total_chunks": 0,
             "errors": [],
+            "metrics": None,  # Will be filled at end
         }
 
         for file_path in files:
@@ -205,9 +229,16 @@ class IndexingCoordinator:
 
                 if error:
                     stats["errors"].append(f"{file_path}: {error}")
+                    metrics.errors_count += 1
                     continue
 
                 if chunks:
+                    # Track file size
+                    try:
+                        metrics.bytes_processed += file_path.stat().st_size
+                    except OSError:
+                        pass
+
                     # Store new chunks
                     chunk_ids = self.backend.store_chunks_batch(chunks)
 
@@ -216,15 +247,23 @@ class IndexingCoordinator:
 
                     stats["indexed_files"] += 1
                     stats["total_chunks"] += len(chunks)
+                    metrics.files_processed += 1
+                    metrics.chunks_created += len(chunks)
                     logger.info(f"Re-indexed {file_path}: {len(chunks)} chunks")
 
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
                 stats["errors"].append(f"{file_path}: {error_msg}")
+                metrics.errors_count += 1
                 logger.exception(f"Unexpected error indexing {file_path}")
 
         # Save updated cache
         cache.save()
+
+        # Finalize metrics
+        metrics.finish()
+        stats["metrics"] = metrics.to_dict()
+        logger.info(f"Incremental indexing complete: {metrics}")
 
         return stats
 

@@ -149,6 +149,16 @@ def index(path: str, update: bool, clean: bool):
                 console.print(f"  Files indexed: {stats['indexed_files']}/{stats['total_files']}")
                 console.print(f"  Total chunks: {stats['total_chunks']}")
 
+            # Show performance metrics if available
+            if stats.get("metrics"):
+                m = stats["metrics"]
+                console.print(f"\n[dim]Performance:[/dim]")
+                console.print(f"  Duration: {m['duration_seconds']}s")
+                console.print(
+                    f"  Throughput: {m['files_per_second']:.1f} files/s, {m['chunks_per_second']:.1f} chunks/s"
+                )
+                console.print(f"  Processed: {m['mb_per_second']:.2f} MB/s")
+
             if stats["errors"]:
                 console.print(f"\n[yellow]Warnings:[/yellow]")
                 for error in stats["errors"][:5]:  # Show first 5 errors
