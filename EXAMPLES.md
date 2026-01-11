@@ -490,6 +490,24 @@ pci index .
 # Check supported languages in README
 ```
 
+**5. Embeddings disabled (no API key):**
+```bash
+pci search "authentication logic"
+# WARNING - Embedding enabled but OPENAI_API_KEY not found. Embeddings will be disabled for this session.
+# WARNING - Semantic search failed (vector index disabled). Falling back to lexical search.
+
+# Solution 1: Set API key
+export OPENAI_API_KEY=sk-your-key-here
+
+# Solution 2: Use explicit lexical search
+pci search --regex "auth"
+
+# Solution 3: Disable embeddings in config
+# Edit .pci/config.json: "enabled": false
+```
+
+**Note:** PCI automatically falls back to lexical search if embeddings fail. No crashes!
+
 ### Retry on Errors
 
 PCI automatically retries failed files with exponential backoff:

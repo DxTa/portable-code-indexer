@@ -137,8 +137,24 @@ class MemvidBackend:
         """
         # Fetch more results if filtering is enabled
         fetch_k = k * 2 if self.valid_chunks else k
-        results = self.mem.find(query, mode="sem", k=fetch_k, snippet_chars=200)
-        return self._convert_and_filter_results(results, k)
+
+        try:
+            results = self.mem.find(query, mode="sem", k=fetch_k, snippet_chars=200)
+            return self._convert_and_filter_results(results, k)
+        except Exception as e:
+            # Fall back to lexical search if semantic fails (e.g., embeddings disabled)
+            if "VecIndexDisabledError" in str(type(e)) or "not enabled" in str(e):
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Semantic search failed (vector index disabled). "
+                    "Falling back to lexical search. "
+                    "Set OPENAI_API_KEY or use --regex for lexical search."
+                )
+                return self.search_lexical(query, k)
+            # Re-raise other exceptions
+            raise
 
     def search_lexical(self, query: str, k: int = 10) -> list[SearchResult]:
         """Perform lexical (BM25) search.
@@ -167,8 +183,22 @@ class MemvidBackend:
         """
         # Fetch more results if filtering is enabled
         fetch_k = k * 2 if self.valid_chunks else k
-        results = self.mem.find(query, mode="auto", k=fetch_k, snippet_chars=200)
-        return self._convert_and_filter_results(results, k)
+
+        try:
+            results = self.mem.find(query, mode="auto", k=fetch_k, snippet_chars=200)
+            return self._convert_and_filter_results(results, k)
+        except Exception as e:
+            # Fall back to lexical search if hybrid fails (e.g., embeddings disabled)
+            if "VecIndexDisabledError" in str(type(e)) or "not enabled" in str(e):
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Hybrid search failed (vector index disabled). Falling back to lexical search."
+                )
+                return self.search_lexical(query, k)
+            # Re-raise other exceptions
+            raise
 
     def _convert_and_filter_results(
         self, results: dict[str, Any], target_k: int

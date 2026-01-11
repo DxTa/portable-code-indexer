@@ -107,7 +107,11 @@ Edit `.pci/config.json`:
 }
 ```
 
-If `OPENAI_API_KEY` is not set and OpenAI models are configured, embeddings will automatically fall back to disabled mode. You can still use lexical search with `pci search --regex`.
+**Automatic Fallback:**
+- If `OPENAI_API_KEY` is not set, embeddings are automatically disabled with a warning
+- Semantic search (`pci search "query"`) automatically falls back to lexical search
+- Explicit lexical search always available: `pci search --regex "pattern"`
+- No crashes or failures - just works with reduced functionality
 
 ## Supported Languages
 
