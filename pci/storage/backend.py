@@ -1,7 +1,7 @@
 """Memvid storage backend for PCI."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Set
 
 from memvid_sdk import create, use
 
@@ -12,14 +12,16 @@ from ..core.types import ChunkId, ChunkType, Language, FilePath, LineNumber
 class MemvidBackend:
     """Storage backend using Memvid."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, valid_chunks: Set[str] | None = None):
         """Initialize Memvid backend.
 
         Args:
             path: Path to .mv2 file
+            valid_chunks: Optional set of valid chunk IDs for filtering stale chunks
         """
         self.path = path
         self.mem = None
+        self.valid_chunks = valid_chunks  # For query-time filtering
 
     def create_index(self, embedding_model: str = "bge-small") -> None:
         """Create new index with vector and lexical search enabled."""
@@ -105,10 +107,12 @@ class MemvidBackend:
             k: Number of results
 
         Returns:
-            List of search results
+            List of search results (filtered if valid_chunks is set)
         """
-        results = self.mem.find(query, mode="sem", k=k, snippet_chars=200)
-        return self._convert_results(results)
+        # Fetch more results if filtering is enabled
+        fetch_k = k * 2 if self.valid_chunks else k
+        results = self.mem.find(query, mode="sem", k=fetch_k, snippet_chars=200)
+        return self._convert_and_filter_results(results, k)
 
     def search_lexical(self, query: str, k: int = 10) -> list[SearchResult]:
         """Perform lexical (BM25) search.
@@ -118,10 +122,12 @@ class MemvidBackend:
             k: Number of results
 
         Returns:
-            List of search results
+            List of search results (filtered if valid_chunks is set)
         """
-        results = self.mem.find(query, mode="lex", k=k, snippet_chars=200)
-        return self._convert_results(results)
+        # Fetch more results if filtering is enabled
+        fetch_k = k * 2 if self.valid_chunks else k
+        results = self.mem.find(query, mode="lex", k=fetch_k, snippet_chars=200)
+        return self._convert_and_filter_results(results, k)
 
     def search_hybrid(self, query: str, k: int = 10) -> list[SearchResult]:
         """Perform hybrid search (semantic + lexical).
@@ -131,10 +137,35 @@ class MemvidBackend:
             k: Number of results
 
         Returns:
-            List of search results
+            List of search results (filtered if valid_chunks is set)
         """
-        results = self.mem.find(query, mode="auto", k=k, snippet_chars=200)
-        return self._convert_results(results)
+        # Fetch more results if filtering is enabled
+        fetch_k = k * 2 if self.valid_chunks else k
+        results = self.mem.find(query, mode="auto", k=fetch_k, snippet_chars=200)
+        return self._convert_and_filter_results(results, k)
+
+    def _convert_and_filter_results(
+        self, results: dict[str, Any], target_k: int
+    ) -> list[SearchResult]:
+        """Convert Memvid results and filter out stale chunks.
+
+        Args:
+            results: Raw results from Memvid
+            target_k: Target number of results after filtering
+
+        Returns:
+            Filtered search results
+        """
+        all_results = self._convert_results(results)
+
+        # If no filtering, return as-is
+        if not self.valid_chunks:
+            return all_results[:target_k]
+
+        # Filter to only valid chunks
+        filtered = [r for r in all_results if str(r.chunk.id) in self.valid_chunks]
+
+        return filtered[:target_k]
 
     def _convert_results(self, results: dict[str, Any]) -> list[SearchResult]:
         """Convert Memvid results to SearchResult objects."""
