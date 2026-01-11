@@ -36,6 +36,10 @@ class EntityExtractor:
         """
         entities: list[Entity] = []
 
+        # Validate input
+        if not chunk.code or not chunk.code.strip():
+            return entities
+
         try:
             # Parse the chunk code
             root = self.engine.parse_code(chunk.code, chunk.language)

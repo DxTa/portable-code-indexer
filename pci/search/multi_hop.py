@@ -51,7 +51,7 @@ class MultiHopSearchStrategy:
         """Perform multi-hop code research.
 
         Automatically discovers code relationships by:
-        1. Initial semantic search for the question
+        1. Initial search for the question
         2. Extract entities (function calls, imports, classes) from results
         3. Follow entity references to discover related code
         4. Build relationship graph
@@ -69,12 +69,8 @@ class MultiHopSearchStrategy:
         relationships: list[CodeRelationship] = []
         all_chunks: list[Chunk] = []
 
-        # Hop 0: Initial semantic search
-        try:
-            initial_results = self.backend.search_lexical(question, k=max_results_per_hop)
-        except Exception:
-            # Fallback to lexical if semantic fails
-            initial_results = self.backend.search_lexical(question, k=max_results_per_hop)
+        # Hop 0: Initial search (lexical - no API needed)
+        initial_results = self.backend.search_lexical(question, k=max_results_per_hop)
 
         if not initial_results:
             return ResearchResult(question=question, chunks=[], relationships=[], hops_executed=0)
@@ -88,7 +84,7 @@ class MultiHopSearchStrategy:
 
         # Multi-hop exploration
         current_hop = 0
-        entities_to_explore = []
+        entities_to_explore: list[tuple[Entity, Chunk]] = []
 
         # Extract entities from initial chunks
         for chunk in all_chunks[:]:
@@ -101,7 +97,7 @@ class MultiHopSearchStrategy:
         # Follow entity references
         while current_hop < self.max_hops and entities_to_explore:
             current_hop += 1
-            next_entities = []
+            next_entities: list[tuple[Entity, Chunk]] = []
 
             # Explore each entity
             for entity, source_chunk in entities_to_explore[:max_results_per_hop]:
