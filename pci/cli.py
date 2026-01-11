@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from . import __version__
 from .config import Config
 from .indexer.coordinator import IndexingCoordinator
 from .storage.backend import MemvidBackend
@@ -47,7 +48,7 @@ def create_backend(index_path: Path, config: Config, valid_chunks=None) -> Memvi
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version=__version__)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
 def main(verbose: bool):
     """PCI - Portable Code Index

@@ -1,35 +1,71 @@
 [project]
-name = "pci"
-version = "0.1.0"
-description = "Portable Code Index - Local-first codebase intelligence using Memvid"
+name = "portable-code-index"
+version = "2.2.0"
+description = "Local-first codebase intelligence with semantic search, multi-hop research, and 12-language AST support"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "PCI Contributors"}
 ]
-
+keywords = [
+    "code-search", "semantic-search", "code-indexing", "codebase-intelligence",
+    "tree-sitter", "ast", "code-analysis", "developer-tools", "cli"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Text Processing :: Indexing",
+]
 dependencies = [
     "memvid-sdk>=2.0",
     "tree-sitter>=0.21.0",
     "tree-sitter-python>=0.21.0",
     "tree-sitter-javascript>=0.21.0",
     "tree-sitter-typescript>=0.21.0",
+    "tree-sitter-go>=0.21.0",
+    "tree-sitter-rust>=0.21.0",
+    "tree-sitter-java>=0.21.0",
+    "tree-sitter-c>=0.21.0",
+    "tree-sitter-cpp>=0.21.0",
+    "tree-sitter-c-sharp>=0.21.0",
+    "tree-sitter-ruby>=0.21.0",
+    "tree-sitter-php>=0.21.0",
     "click>=8.0",
     "rich>=13.0",
     "pathspec>=0.11",
     "pydantic>=2.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/pci-project/portable-code-index"
+Documentation = "https://github.com/pci-project/portable-code-index#readme"
+Repository = "https://github.com/pci-project/portable-code-index"
+Issues = "https://github.com/pci-project/portable-code-index/issues"
+
 [project.optional-dependencies]
 openai = ["openai>=1.0"]
 pdf = ["pypdf>=3.0"]
+all = [
+    "openai>=1.0",
+    "pypdf>=3.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "pyinstaller>=5.0",
     "black>=23.0",
     "ruff>=0.1.0",
+    "build>=1.0",
+    "twine>=4.0",
 ]
 
 [project.scripts]

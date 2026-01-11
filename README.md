@@ -1,24 +1,46 @@
 # PCI - Portable Code Index
 
-**v2.0** - Production-grade local-first codebase intelligence with automatic stale chunk management.
+**v2.2** - Production-grade local-first codebase intelligence with 12-language AST support.
 
 ## Features
 
 - **cAST Algorithm** - Semantic code chunking via Abstract Syntax Tree
 - **Multi-Hop Code Research** - Automatically discovers interconnected code relationships
-- **Chunk Metadata Sidecar (v2.0)** - Tracks valid/stale chunks, filters outdated code from results
-- **Index Compaction (v2.0)** - `pci compact` removes stale chunks, keeps index healthy
-- **Semantic Search** - Natural language queries like "find authentication code"
-- **Regex/Lexical Search** - Pattern matching without API keys
+- **12 Language Support** - Python, JS/TS, Go, Rust, Java, C/C++, C#, Ruby, PHP
+- **Chunk Metadata Sidecar** - Tracks valid/stale chunks, filters outdated code from results
+- **Index Compaction** - `pci compact` removes stale chunks, keeps index healthy
+- **Semantic Search** - Natural language queries (requires OpenAI API key)
+- **Lexical Search** - Pattern matching without API keys
 - **Local-First** - All code stays on your machine
-- **30 Languages** - Comprehensive language support via Tree-sitter
 - **Portable** - Single .mv2 file storage (no database required)
 - **Performance Metrics** - Real-time indexing throughput tracking
 
 ## Installation
 
+### From Wheel File (Recommended)
+
 ```bash
+# Download the wheel file, then:
+pip install portable_code_index-2.2.0-py3-none-any.whl
+
+# Run via module
+python -m pci.cli --help
+```
+
+### From Source (Development)
+
+```bash
+git clone https://github.com/pci-project/portable-code-index.git
+cd portable-code-index/pci
 pip install -e .
+```
+
+### Build Wheel Locally
+
+```bash
+pip install build
+python -m build --wheel
+# Output: dist/portable_code_index-2.2.0-py3-none-any.whl
 ```
 
 ## Quick Start
