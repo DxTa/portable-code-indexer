@@ -55,7 +55,10 @@ def init(path: str):
 @main.command()
 @click.argument("path", type=click.Path(exists=True), default=".")
 @click.option("--update", is_flag=True, help="Re-index changed files only")
-def index(path: str, update: bool):
+@click.option(
+    "--clean", is_flag=True, help="Delete existing index and cache, then rebuild from scratch"
+)
+def index(path: str, update: bool, clean: bool):
     """Index codebase for search."""
     pci_dir = Path(".pci")
     if not pci_dir.exists():
@@ -65,9 +68,33 @@ def index(path: str, update: bool):
     # Load config
     config = Config.load(pci_dir / "config.json")
 
-    # Open backend
+    # Handle --clean flag
     backend = MemvidBackend(pci_dir / "index.mv2")
-    backend.open_index()
+    if clean:
+        console.print("[yellow]Cleaning existing index and cache...[/yellow]")
+
+        # Remove index file
+        index_path = pci_dir / "index.mv2"
+        if index_path.exists():
+            index_path.unlink()
+            console.print(f"  [dim]✓ Deleted: {index_path}[/dim]")
+
+        # Remove cache file
+        cache_path = pci_dir / "cache" / "file_hashes.json"
+        if cache_path.exists():
+            cache_path.unlink()
+            console.print(f"  [dim]✓ Deleted: {cache_path}[/dim]")
+
+        console.print("[green]Clean complete. Performing full reindex...[/green]\n")
+
+        # Force full reindex by ensuring update=False
+        update = False
+
+        # Recreate index
+        backend.create_index()
+    else:
+        # Open existing index
+        backend.open_index()
 
     # Create coordinator
     coordinator = IndexingCoordinator(config, backend)
