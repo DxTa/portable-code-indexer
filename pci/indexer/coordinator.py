@@ -368,6 +368,144 @@ class IndexingCoordinator:
 
         return stats
 
+    def compact_index(
+        self, directory: Path, chunk_index: ChunkIndex, threshold: float = 0.2
+    ) -> dict:
+        """Compact index by rebuilding with only valid chunks.
+
+        This removes all stale chunks from the index, reducing size and
+        improving search quality.
+
+        Args:
+            directory: Root directory containing source files
+            chunk_index: Chunk index tracking valid/stale chunks
+            threshold: Minimum staleness ratio to trigger compaction
+
+        Returns:
+            Statistics dictionary
+        """
+        # Check if compaction is needed
+        summary = chunk_index.get_staleness_summary()
+
+        logger.info(
+            f"Staleness check: {summary.stale_chunks}/{summary.total_chunks} "
+            f"({summary.staleness_ratio:.1%}) stale"
+        )
+
+        if summary.staleness_ratio < threshold:
+            return {
+                "compaction_needed": False,
+                "staleness_ratio": summary.staleness_ratio,
+                "threshold": threshold,
+                "message": f"Index is healthy ({summary.staleness_ratio:.1%} stale, threshold {threshold:.1%})",
+            }
+
+        logger.info(f"Compaction needed: {summary.staleness_ratio:.1%} > {threshold:.1%} threshold")
+
+        # Start performance tracking
+        metrics = PerformanceMetrics()
+
+        # Get valid chunk IDs
+        valid_chunks = chunk_index.get_valid_chunks()
+        stale_chunks = chunk_index.get_stale_chunks()
+
+        logger.info(f"Rebuilding index with {len(valid_chunks)} valid chunks...")
+        logger.info(f"Removing {len(stale_chunks)} stale chunks...")
+
+        # Create new index file path
+        new_index_path = self.backend.path.parent / "index-new.mv2"
+        old_index_path = self.backend.path
+
+        # Create new backend for new index
+        from ..storage.backend import MemvidBackend
+
+        new_backend = MemvidBackend(new_index_path)
+        new_backend.create_index()
+
+        stats = {
+            "compaction_needed": True,
+            "staleness_ratio": summary.staleness_ratio,
+            "threshold": threshold,
+            "valid_chunks": len(valid_chunks),
+            "stale_chunks": len(stale_chunks),
+            "files_reindexed": 0,
+            "chunks_stored": 0,
+            "errors": [],
+            "metrics": None,
+        }
+
+        # Re-index all files to rebuild index with only valid chunks
+        files = self._discover_files(directory)
+
+        for file_path in files:
+            try:
+                language = Language.from_extension(file_path.suffix)
+
+                if not self.chunker.engine.is_supported(language):
+                    continue
+
+                # Chunk the file
+                chunks, error = self._index_file_with_retry(file_path, language)
+
+                if error:
+                    stats["errors"].append(f"{file_path}: {error}")
+                    continue
+
+                if chunks:
+                    # Store chunks in new index
+                    new_backend.store_chunks_batch(chunks)
+                    stats["files_reindexed"] += 1
+                    stats["chunks_stored"] += len(chunks)
+                    metrics.files_processed += 1
+                    metrics.chunks_created += len(chunks)
+
+                    try:
+                        metrics.bytes_processed += file_path.stat().st_size
+                    except OSError:
+                        pass
+
+            except Exception as e:
+                error_msg = f"Error during compaction: {str(e)}"
+                stats["errors"].append(f"{file_path}: {error_msg}")
+                logger.exception(f"Compaction error for {file_path}")
+
+        # Atomic swap: rename new index to replace old
+        logger.info("Performing atomic index swap...")
+
+        try:
+            # Backup old index
+            backup_path = old_index_path.parent / "index-backup.mv2"
+            if old_index_path.exists():
+                old_index_path.rename(backup_path)
+
+            # Move new index to primary location
+            new_index_path.rename(old_index_path)
+
+            # Delete backup after successful swap
+            if backup_path.exists():
+                backup_path.unlink()
+
+            logger.info("Index compaction complete - swapped to new index")
+
+        except Exception as e:
+            logger.error(f"Failed to swap index: {e}")
+            # Rollback: restore backup if it exists
+            if backup_path.exists():
+                backup_path.rename(old_index_path)
+            stats["errors"].append(f"Index swap failed: {e}")
+            raise
+
+        # Clear stale chunks from chunk index
+        chunk_index.clear_stale_chunks()
+        chunk_index.save()
+
+        # Finalize metrics
+        metrics.finish()
+        stats["metrics"] = metrics.to_dict()
+        logger.info(f"Compaction complete: {metrics}")
+
+        return stats
+
     def get_file_hash(self, file_path: Path) -> str:
         """Calculate file hash for change detection.
 

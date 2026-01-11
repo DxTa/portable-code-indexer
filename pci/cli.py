@@ -291,9 +291,10 @@ def research(question: str, hops: int, graph: bool, limit: int):
 
 @main.command()
 def status():
-    """Show index statistics."""
+    """Show index statistics and health."""
     import datetime
     import json
+    from .indexer.chunk_index import ChunkIndex
 
     pci_dir = Path(".pci")
     if not pci_dir.exists():
@@ -335,10 +336,37 @@ def status():
         except OSError:
             pass
 
+    # Chunk index staleness (v2.0)
+    chunk_index_path = pci_dir / "chunk_index.json"
+    if chunk_index_path.exists():
+        try:
+            chunk_index = ChunkIndex(chunk_index_path)
+            summary = chunk_index.get_staleness_summary()
+
+            table.add_row("", "")  # Separator
+            table.add_row("Total Chunks", f"{summary.total_chunks:,}")
+            table.add_row("Valid Chunks", f"{summary.valid_chunks:,}")
+            table.add_row("Stale Chunks", f"{summary.stale_chunks:,}")
+            table.add_row("Staleness Ratio", f"{summary.staleness_ratio:.1%}")
+            table.add_row("Health Status", summary.status)
+        except Exception:
+            pass
+
     console.print(table)
 
-    # Staleness warning
-    if index_path.exists():
+    # Recommendations
+    if chunk_index_path.exists():
+        try:
+            chunk_index = ChunkIndex(chunk_index_path)
+            summary = chunk_index.get_staleness_summary()
+
+            if summary.staleness_ratio >= 0.2:
+                console.print(f"\n{summary.status}")
+                console.print(f"[dim]Recommendation: {summary.recommendation}[/dim]")
+        except Exception:
+            pass
+    elif index_path.exists():
+        # Fallback to age-based warning
         try:
             stat = index_path.stat()
             mtime = datetime.datetime.fromtimestamp(stat.st_mtime)
@@ -350,6 +378,104 @@ def status():
                 )
         except OSError:
             pass
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True), default=".")
+@click.option("--threshold", type=float, default=0.2, help="Minimum staleness ratio to compact")
+@click.option("--force", is_flag=True, help="Force compaction regardless of threshold")
+def compact(path: str, threshold: float, force: bool):
+    """Compact index by removing stale chunks.
+
+    This rebuilds the index with only valid chunks, removing all stale
+    chunks that accumulated from file modifications. Improves search
+    quality and reduces index size.
+
+    Example:
+        pci compact              # Compact if >20% stale
+        pci compact --threshold 0.1  # Compact if >10% stale
+        pci compact --force      # Force compaction now
+    """
+    from .indexer.chunk_index import ChunkIndex
+
+    pci_dir = Path(".pci")
+    if not pci_dir.exists():
+        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+        sys.exit(1)
+
+    # Check if chunk index exists
+    chunk_index_path = pci_dir / "chunk_index.json"
+    if not chunk_index_path.exists():
+        console.print("[yellow]Chunk index not found. Compaction requires chunk tracking.[/yellow]")
+        console.print(
+            "[dim]Run incremental indexing to build chunk index, or use --clean to rebuild.[/dim]"
+        )
+        sys.exit(1)
+
+    # Load chunk index
+    chunk_index = ChunkIndex(chunk_index_path)
+    summary = chunk_index.get_staleness_summary()
+
+    console.print(f"[cyan]Index Health Check[/cyan]")
+    console.print(f"  Total chunks: {summary.total_chunks:,}")
+    console.print(f"  Valid chunks: {summary.valid_chunks:,}")
+    console.print(f"  Stale chunks: {summary.stale_chunks:,}")
+    console.print(f"  Staleness: {summary.staleness_ratio:.1%}")
+    console.print(f"  Status: {summary.status}\n")
+
+    # Load config and backend
+    config = Config.load(pci_dir / "config.json")
+    backend = MemvidBackend(pci_dir / "index.mv2")
+    backend.open_index()
+
+    coordinator = IndexingCoordinator(config, backend)
+    directory = Path(path).resolve()
+
+    # Override threshold if force
+    if force:
+        threshold = 0.0
+        console.print("[yellow]Forcing compaction...[/yellow]\n")
+
+    # Perform compaction
+    with Progress(
+        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console
+    ) as progress:
+        task = progress.add_task("Compacting index...", total=None)
+
+        try:
+            stats = coordinator.compact_index(directory, chunk_index, threshold)
+            progress.update(task, completed=True)
+
+            if not stats["compaction_needed"]:
+                console.print(f"\n[green]✓ {stats['message']}[/green]")
+            else:
+                console.print(f"\n[green]✓ Compaction complete[/green]")
+                console.print(f"  Files reindexed: {stats['files_reindexed']}")
+                console.print(f"  Chunks stored: {stats['chunks_stored']}")
+                console.print(
+                    f"  Removed {stats['stale_chunks']:,} stale chunks "
+                    f"({stats['staleness_ratio']:.1%} of total)"
+                )
+
+                if stats.get("metrics"):
+                    m = stats["metrics"]
+                    console.print(f"\n[dim]Performance:[/dim]")
+                    console.print(f"  Duration: {m['duration_seconds']}s")
+                    console.print(
+                        f"  Throughput: {m['files_per_second']:.1f} files/s, "
+                        f"{m['chunks_per_second']:.1f} chunks/s"
+                    )
+
+                if stats["errors"]:
+                    console.print(f"\n[yellow]Warnings:[/yellow]")
+                    for error in stats["errors"][:5]:
+                        console.print(f"  {error}")
+                    if len(stats["errors"]) > 5:
+                        console.print(f"  ... and {len(stats['errors']) - 5} more")
+
+        except Exception as e:
+            console.print(f"[red]Error during compaction: {e}[/red]")
+            sys.exit(1)
 
 
 @main.command()
