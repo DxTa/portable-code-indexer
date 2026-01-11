@@ -416,10 +416,15 @@ class IndexingCoordinator:
         new_index_path = self.backend.path.parent / "index-new.mv2"
         old_index_path = self.backend.path
 
-        # Create new backend for new index
+        # Create new backend for new index (with same embedding config)
         from ..storage.backend import MemvidBackend
 
-        new_backend = MemvidBackend(new_index_path)
+        new_backend = MemvidBackend(
+            path=new_index_path,
+            embedding_enabled=self.backend.embedding_enabled,
+            embedding_model=self.backend.embedding_model,
+            api_key_env=self.backend.api_key_env,
+        )
         new_backend.create_index()
 
         stats = {

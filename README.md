@@ -61,8 +61,11 @@ Configuration is stored in `.pci/config.json`:
 ```json
 {
   "embedding": {
-    "provider": "local",
-    "model": "bge-small"
+    "enabled": true,
+    "provider": "openai",
+    "model": "openai-small",
+    "api_key_env": "OPENAI_API_KEY",
+    "dimensions": 1536
   },
   "indexing": {
     "exclude_patterns": ["node_modules/", "__pycache__/"],
@@ -74,6 +77,37 @@ Configuration is stored in `.pci/config.json`:
   }
 }
 ```
+
+### Embedding Models
+
+PCI supports multiple embedding providers for semantic search:
+
+| Model | Dimensions | Use Case |
+|-------|-----------|----------|
+| `openai-small` | 1536 | Default, balanced quality/cost |
+| `openai-large` | 3072 | Higher quality, more expensive |
+| `bge-small` | 384 | Local/offline, no API key needed |
+
+**Setup for OpenAI models:**
+```bash
+export OPENAI_API_KEY=sk-your-key-here
+pci init
+pci index .
+```
+
+**For local/offline usage:**
+Edit `.pci/config.json`:
+```json
+{
+  "embedding": {
+    "enabled": true,
+    "provider": "local",
+    "model": "bge-small"
+  }
+}
+```
+
+If `OPENAI_API_KEY` is not set and OpenAI models are configured, embeddings will automatically fall back to disabled mode. You can still use lexical search with `pci search --regex`.
 
 ## Supported Languages
 

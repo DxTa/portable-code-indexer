@@ -183,44 +183,49 @@ pci config set compaction.schedule "weekly"
 - Stream-based compaction to reduce peak memory
 - Progress reporting for long operations
 
-## Priority 5: Embedding Provider Support
+## ~~Priority 5: Embedding Provider Support~~ ✅ COMPLETED (v2.1)
 
-### Current State
-Embeddings disabled due to OpenAI quota limits.
+### Implementation Status
+✅ **Completed** - OpenAI embeddings re-enabled with automatic fallback.
 
-### Planned Support
+### Features Delivered
 
+**Configuration:**
 ```json
-// config.json
 {
   "embedding": {
-    "provider": "openai|ollama|local",
-    "model": "text-embedding-3-large",
+    "enabled": true,
+    "provider": "openai",
+    "model": "openai-small",
     "api_key_env": "OPENAI_API_KEY",
-    "local_model_path": null
+    "dimensions": 1536
   }
 }
 ```
 
-### Providers
+**Supported Models:**
+1. ✅ **OpenAI openai-small** (1536 dims) - Default, balanced
+2. ✅ **OpenAI openai-large** (3072 dims) - Higher quality
+3. ✅ **bge-small** (384 dims) - Local/offline
 
-1. **OpenAI** (cloud, high quality)
-   - text-embedding-3-small (1536 dims)
-   - text-embedding-3-large (3072 dims)
+**Smart Fallback:**
+- Automatically disables embeddings if API key not found
+- Logs warning but continues with lexical search
+- No crashes or failures
 
-2. **Ollama** (local, privacy-focused)
+### Future Extensions (Not Required for v2.1)
+
+1. **Ollama** (local, privacy-focused)
    - nomic-embed-text
    - mxbai-embed-large
 
-3. **Local transformers** (offline)
+2. **Local transformers** (offline)
    - sentence-transformers/all-MiniLM-L6-v2
    - Runs entirely offline
 
-### Migration Path
-
-1. Re-enable embeddings with provider selection
-2. Add `pci reembed` command to update existing chunks
-3. Support hybrid search (embeddings + BM25)
+3. **Additional features:**
+   - `pci reembed` command to update existing chunks
+   - Hybrid search weighting configuration
 
 ## Priority 6: Multi-Language Support
 

@@ -10,9 +10,11 @@ from pydantic import BaseModel, Field
 class EmbeddingConfig(BaseModel):
     """Embedding configuration."""
 
-    provider: str = "openai"  # "openai" or "local"
+    enabled: bool = True
+    provider: str = "openai"  # "openai", "ollama", or "local"
     model: str = "openai-small"  # "openai-small", "openai-large", or "bge-small"
-    api_key: str | None = None
+    api_key_env: str = "OPENAI_API_KEY"  # Environment variable for API key
+    dimensions: int = 1536  # Embedding dimensions (1536 for openai-small, 3072 for openai-large)
 
 
 class IndexingConfig(BaseModel):

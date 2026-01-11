@@ -316,8 +316,11 @@ Edit `.pci/config.json`:
 ```json
 {
   "embedding": {
-    "provider": "local",
-    "model": "bge-small"
+    "enabled": true,
+    "provider": "openai",
+    "model": "openai-small",
+    "api_key_env": "OPENAI_API_KEY",
+    "dimensions": 1536
   },
   "indexing": {
     "include_patterns": ["*.py", "*.js", "*.ts", "*.tsx"],
@@ -339,6 +342,69 @@ Edit `.pci/config.json`:
     "greedy_merge": true
   }
 }
+```
+
+### Embedding Configuration
+
+**OpenAI Embeddings (Cloud, High Quality):**
+
+```bash
+# Set API key
+export OPENAI_API_KEY=sk-your-key-here
+
+# Edit config for OpenAI small model (1536 dimensions)
+# .pci/config.json:
+{
+  "embedding": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "openai-small",
+    "api_key_env": "OPENAI_API_KEY",
+    "dimensions": 1536
+  }
+}
+```
+
+**OpenAI Large Model (Higher Quality):**
+
+```json
+{
+  "embedding": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "openai-large",
+    "api_key_env": "OPENAI_API_KEY",
+    "dimensions": 3072
+  }
+}
+```
+
+**Local Embeddings (Offline, No API Key):**
+
+```json
+{
+  "embedding": {
+    "enabled": true,
+    "provider": "local",
+    "model": "bge-small",
+    "dimensions": 384
+  }
+}
+```
+
+**Disable Embeddings (Lexical Search Only):**
+
+```json
+{
+  "embedding": {
+    "enabled": false
+  }
+}
+```
+
+When embeddings are disabled, you can still use lexical/regex search:
+```bash
+pci search --regex "function.*login"
 ```
 
 ### View Current Configuration

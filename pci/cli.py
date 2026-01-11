@@ -26,6 +26,26 @@ def setup_logging(verbose: bool = False):
     )
 
 
+def create_backend(index_path: Path, config: Config, valid_chunks=None) -> MemvidBackend:
+    """Create MemvidBackend with config-based embedding settings.
+
+    Args:
+        index_path: Path to index .mv2 file
+        config: PCI configuration
+        valid_chunks: Optional set of valid chunk IDs for filtering
+
+    Returns:
+        Configured MemvidBackend instance
+    """
+    return MemvidBackend(
+        path=index_path,
+        valid_chunks=valid_chunks,
+        embedding_enabled=config.embedding.enabled,
+        embedding_model=config.embedding.model,
+        api_key_env=config.embedding.api_key_env,
+    )
+
+
 @click.group()
 @click.version_option(version="0.1.0")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
@@ -56,8 +76,8 @@ def init(path: str):
     config = Config()
     config.save(pci_dir / "config.json")
 
-    # Create empty index
-    backend = MemvidBackend(pci_dir / "index.mv2")
+    # Create empty index with embedding support
+    backend = create_backend(pci_dir / "index.mv2", config)
     backend.create_index()
 
     console.print(f"[green]✓[/green] Initialized PCI at {pci_dir}")
@@ -81,7 +101,7 @@ def index(path: str, update: bool, clean: bool):
     config = Config.load(pci_dir / "config.json")
 
     # Handle --clean flag
-    backend = MemvidBackend(pci_dir / "index.mv2")
+    backend = create_backend(pci_dir / "index.mv2", config)
     if clean:
         console.print("[yellow]Cleaning existing index and cache...[/yellow]")
 
@@ -196,6 +216,9 @@ def search(query: str, regex: bool, limit: int, no_filter: bool):
         console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
         sys.exit(1)
 
+    # Load config
+    config = Config.load(pci_dir / "config.json")
+
     # Load chunk index for filtering (if available and not disabled)
     valid_chunks = None
     if not no_filter:
@@ -207,7 +230,7 @@ def search(query: str, regex: bool, limit: int, no_filter: bool):
             except Exception:
                 pass  # Silently fall back to no filtering
 
-    backend = MemvidBackend(pci_dir / "index.mv2", valid_chunks=valid_chunks)
+    backend = create_backend(pci_dir / "index.mv2", config, valid_chunks=valid_chunks)
     backend.open_index()
 
     mode = "lexical" if regex else "semantic"
@@ -257,6 +280,9 @@ def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool)
         console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
         sys.exit(1)
 
+    # Load config
+    config = Config.load(pci_dir / "config.json")
+
     # Load chunk index for filtering (if available and not disabled)
     valid_chunks = None
     if not no_filter:
@@ -268,7 +294,7 @@ def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool)
             except Exception:
                 pass  # Silently fall back to no filtering
 
-    backend = MemvidBackend(pci_dir / "index.mv2", valid_chunks=valid_chunks)
+    backend = create_backend(pci_dir / "index.mv2", config, valid_chunks=valid_chunks)
     backend.open_index()
 
     strategy = MultiHopSearchStrategy(backend, max_hops=hops)
@@ -340,7 +366,10 @@ def status():
         console.print("[red]Error: PCI not initialized[/red]")
         sys.exit(1)
 
-    backend = MemvidBackend(pci_dir / "index.mv2")
+    # Load config
+    config = Config.load(pci_dir / "config.json")
+
+    backend = create_backend(pci_dir / "index.mv2", config)
     stats = backend.get_stats()
 
     table = Table(title="PCI Index Status")
@@ -464,7 +493,7 @@ def compact(path: str, threshold: float, force: bool):
 
     # Load config and backend
     config = Config.load(pci_dir / "config.json")
-    backend = MemvidBackend(pci_dir / "index.mv2")
+    backend = create_backend(pci_dir / "index.mv2", config)
     backend.open_index()
 
     coordinator = IndexingCoordinator(config, backend)

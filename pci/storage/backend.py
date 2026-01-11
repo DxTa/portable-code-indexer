@@ -1,5 +1,6 @@
 """Memvid storage backend for PCI."""
 
+import os
 from pathlib import Path
 from typing import Any, Set
 
@@ -12,25 +13,50 @@ from ..core.types import ChunkId, ChunkType, Language, FilePath, LineNumber
 class MemvidBackend:
     """Storage backend using Memvid."""
 
-    def __init__(self, path: Path, valid_chunks: Set[str] | None = None):
+    def __init__(
+        self,
+        path: Path,
+        valid_chunks: Set[str] | None = None,
+        embedding_enabled: bool = True,
+        embedding_model: str = "openai-small",
+        api_key_env: str = "OPENAI_API_KEY",
+    ):
         """Initialize Memvid backend.
 
         Args:
             path: Path to .mv2 file
             valid_chunks: Optional set of valid chunk IDs for filtering stale chunks
+            embedding_enabled: Whether to enable embeddings
+            embedding_model: Embedding model to use (openai-small, openai-large, bge-small)
+            api_key_env: Environment variable containing API key
         """
         self.path = path
         self.mem = None
         self.valid_chunks = valid_chunks  # For query-time filtering
+        self.embedding_enabled = embedding_enabled
+        self.embedding_model = embedding_model
+        self.api_key_env = api_key_env
 
-    def create_index(self, embedding_model: str = "bge-small") -> None:
+        # Check if API key is available when OpenAI models are used
+        if embedding_enabled and "openai" in embedding_model.lower():
+            api_key = os.getenv(api_key_env)
+            if not api_key:
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Embedding enabled but {api_key_env} not found. "
+                    "Embeddings will be disabled for this session."
+                )
+                self.embedding_enabled = False
+
+    def create_index(self) -> None:
         """Create new index with vector and lexical search enabled."""
         self.mem = create(
             str(self.path),
-            enable_vec=True,
+            enable_vec=self.embedding_enabled,
             enable_lex=True,
         )
-        self.embedding_model = embedding_model
 
     def open_index(self) -> None:
         """Open existing index."""
@@ -57,8 +83,8 @@ class MemvidBackend:
             },
             text=chunk.code,
             uri=f"pci://{chunk.file_path}#{chunk.start_line}",
-            enable_embedding=True,
-            embedding_model=getattr(self, "embedding_model", "bge-small"),
+            enable_embedding=self.embedding_enabled,
+            embedding_model=self.embedding_model,
         )
         return ChunkId(str(result.get("frame_id", "")))
 
@@ -89,12 +115,12 @@ class MemvidBackend:
                 }
             )
 
-        # Disable embeddings for now (quota limited)
-        # Can re-enable when OpenAI credits available
+        # Use configured embedding settings
         frame_ids = self.mem.put_many(
             docs,
             opts={
-                "enable_embedding": False,
+                "enable_embedding": self.embedding_enabled,
+                "embedding_model": self.embedding_model,
             },
         )
         return [ChunkId(str(fid)) for fid in frame_ids]
