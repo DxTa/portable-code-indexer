@@ -9,6 +9,7 @@ from ..config import Config
 from ..core.types import Language
 from ..parser.chunker import CASTChunker, CASTConfig
 from ..storage.backend import MemvidBackend
+from .hash_cache import HashCache
 
 
 class IndexingCoordinator:
@@ -43,7 +44,7 @@ class IndexingCoordinator:
         """
         # Discover files
         files = self._discover_files(directory)
-        
+
         stats = {
             "total_files": len(files),
             "indexed_files": 0,
@@ -55,19 +56,19 @@ class IndexingCoordinator:
         for file_path in files:
             try:
                 language = Language.from_extension(file_path.suffix)
-                
+
                 if not self.chunker.engine.is_supported(language):
                     continue
 
                 # Chunk the file
                 chunks = self.chunker.chunk_file(file_path, language)
-                
+
                 if chunks:
                     # Store chunks
                     self.backend.store_chunks_batch(chunks)
                     stats["indexed_files"] += 1
                     stats["total_chunks"] += len(chunks)
-                    
+
             except Exception as e:
                 stats["errors"].append(f"{file_path}: {str(e)}")
 
@@ -96,10 +97,77 @@ class IndexingCoordinator:
                     rel_path = file_path.relative_to(directory)
                     if not spec.match_file(str(rel_path)):
                         # Check file size
-                        if file_path.stat().st_size <= self.config.indexing.max_file_size_mb * 1024 * 1024:
+                        if (
+                            file_path.stat().st_size
+                            <= self.config.indexing.max_file_size_mb * 1024 * 1024
+                        ):
                             files.append(file_path)
 
         return files
+
+    def index_directory_incremental(self, directory: Path, cache: HashCache) -> dict:
+        """Index only changed files using hash cache.
+
+        Args:
+            directory: Root directory to index
+            cache: Hash cache for change detection
+
+        Returns:
+            Statistics dictionary
+        """
+        files = self._discover_files(directory)
+
+        stats = {
+            "total_files": len(files),
+            "changed_files": 0,
+            "skipped_files": 0,
+            "indexed_files": 0,
+            "total_chunks": 0,
+            "errors": [],
+        }
+
+        for file_path in files:
+            # Check if file changed
+            if not cache.has_changed(file_path):
+                stats["skipped_files"] += 1
+                continue
+
+            stats["changed_files"] += 1
+
+            try:
+                language = Language.from_extension(file_path.suffix)
+
+                if not self.chunker.engine.is_supported(language):
+                    continue
+
+                # Get old chunk IDs for this file
+                old_chunk_ids = cache.get_chunks(file_path)
+
+                # Delete old chunks (placeholder - Memvid doesn't support direct delete)
+                if old_chunk_ids:
+                    # In production, would delete old chunks here
+                    pass
+
+                # Chunk the file
+                chunks = self.chunker.chunk_file(file_path, language)
+
+                if chunks:
+                    # Store new chunks
+                    chunk_ids = self.backend.store_chunks_batch(chunks)
+
+                    # Update cache with new chunk IDs
+                    cache.update(file_path, chunk_ids)
+
+                    stats["indexed_files"] += 1
+                    stats["total_chunks"] += len(chunks)
+
+            except Exception as e:
+                stats["errors"].append(f"{file_path}: {str(e)}")
+
+        # Save updated cache
+        cache.save()
+
+        return stats
 
     def get_file_hash(self, file_path: Path) -> str:
         """Calculate file hash for change detection.

@@ -182,6 +182,20 @@ class MemvidBackend:
             )
         return search_results
 
+    def delete_chunks(self, chunk_ids: list[ChunkId]) -> int:
+        """Delete chunks by their IDs.
+
+        Args:
+            chunk_ids: List of chunk IDs to delete
+
+        Returns:
+            Number of chunks deleted
+        """
+        # Note: Memvid doesn't have direct delete API
+        # In production, would need to track deletions and rebuild index
+        # For now, this is a placeholder
+        return 0
+
     def get_stats(self) -> dict[str, Any]:
         """Get index statistics."""
         # Memvid doesn't expose stats directly, return placeholder

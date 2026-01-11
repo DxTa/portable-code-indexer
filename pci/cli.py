@@ -74,7 +74,12 @@ def index(path: str, update: bool):
 
     # Index directory
     directory = Path(path).resolve()
-    console.print(f"[cyan]Indexing {directory}...[/cyan]")
+
+    if update:
+        console.print(f"[cyan]Incremental indexing {directory}...[/cyan]")
+        console.print(f"[dim]Checking for changes...[/dim]")
+    else:
+        console.print(f"[cyan]Indexing {directory}...[/cyan]")
 
     with Progress(
         SpinnerColumn(),
@@ -84,12 +89,26 @@ def index(path: str, update: bool):
         task = progress.add_task("Discovering files...", total=None)
 
         try:
-            stats = coordinator.index_directory(directory)
-            progress.update(task, completed=True)
+            if update:
+                # Incremental indexing with hash cache
+                from .indexer.hash_cache import HashCache
 
-            console.print(f"\n[green]✓ Indexing complete[/green]")
-            console.print(f"  Files indexed: {stats['indexed_files']}/{stats['total_files']}")
-            console.print(f"  Total chunks: {stats['total_chunks']}")
+                cache = HashCache(pci_dir / "cache" / "file_hashes.json")
+                stats = coordinator.index_directory_incremental(directory, cache)
+
+                console.print(f"\n[green]✓ Incremental indexing complete[/green]")
+                console.print(f"  Changed files: {stats['changed_files']}")
+                console.print(f"  Skipped files: {stats['skipped_files']}")
+                console.print(f"  Indexed files: {stats['indexed_files']}/{stats['total_files']}")
+                console.print(f"  Total chunks: {stats['total_chunks']}")
+            else:
+                # Full indexing
+                stats = coordinator.index_directory(directory)
+                progress.update(task, completed=True)
+
+                console.print(f"\n[green]✓ Indexing complete[/green]")
+                console.print(f"  Files indexed: {stats['indexed_files']}/{stats['total_files']}")
+                console.print(f"  Total chunks: {stats['total_chunks']}")
 
             if stats["errors"]:
                 console.print(f"\n[yellow]Warnings:[/yellow]")
