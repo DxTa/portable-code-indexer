@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import hashlib
+from typing import cast
 
 import pathspec
 
@@ -156,7 +157,7 @@ class IndexingCoordinator:
                     chunk_ids = self.backend.store_chunks_batch(chunks)
 
                     # Update cache with new chunk IDs
-                    cache.update(file_path, chunk_ids)
+                    cache.update(file_path, cast(list[str], chunk_ids))
 
                     stats["indexed_files"] += 1
                     stats["total_chunks"] += len(chunks)
