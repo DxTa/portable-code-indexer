@@ -25,7 +25,13 @@ pip install -e .
 pci init
 
 # Index your codebase
-pci index
+pci index .
+
+# Incremental re-index (only changed files)
+pci index --update
+
+# Clean rebuild (recommended periodically)
+pci index --clean
 
 # Search semantically
 pci search "find authentication logic"
@@ -86,6 +92,23 @@ Text files, PDF
 - **Parsing**: Tree-sitter
 - **Embeddings**: Local (bge-small) or OpenAI/Voyage
 - **Search**: Hybrid (BM25 + vector similarity)
+
+## Known Limitations
+
+PCI has some architectural limitations you should be aware of:
+
+- **Chunk Accumulation:** Modified files create new chunks without deleting old ones. Use `pci index --clean` periodically to rebuild the index.
+- **Staleness Warning:** Run `pci status` to check index age and receive maintenance recommendations.
+
+See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for detailed information and workarounds.
+
+## Future Enhancements
+
+See [FUTURE_WORK.md](FUTURE_WORK.md) for planned v2.0 features including:
+- Automatic stale chunk detection
+- Chunk metadata sidecar
+- Index compaction
+- Multi-language expansion
 
 ## License
 
