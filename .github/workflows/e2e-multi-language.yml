@@ -32,10 +32,10 @@ jobs:
             test_file: test_javascript_e2e.py
           
           - language: typescript
-            repo_url: https://github.com/sindresorhus/type-fest
+            repo_url: https://github.com/sindresorhus/p-queue
             sparse_paths: "source"
-            keyword: "type"
-            symbol: "JsonValue"
+            keyword: "function"
+            symbol: "PQueue"
             test_file: test_typescript_e2e.py
           
           - language: go
@@ -67,10 +67,10 @@ jobs:
             test_file: test_cpp_e2e.py
           
           - language: csharp
-            repo_url: https://github.com/JamesNK/Newtonsoft.Json
-            sparse_paths: "Src/Newtonsoft.Json"
+            repo_url: https://github.com/ardalis/GuardClauses
+            sparse_paths: "src"
             keyword: "class"
-            symbol: "JsonConvert"
+            symbol: "Guard"
             test_file: test_csharp_e2e.py
           
           - language: ruby

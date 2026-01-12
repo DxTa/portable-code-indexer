@@ -9,7 +9,7 @@ from .base_e2e_test import CSharpE2ETest
 class TestCSharpE2E(CSharpE2ETest):
     """End-to-end tests for C# repository using aspnetcore as target."""
 
-    EXPECTED_SYMBOL = "HttpContext"
+    EXPECTED_SYMBOL = "Guard"
 
     # ===== INITIALIZATION TESTS =====
 

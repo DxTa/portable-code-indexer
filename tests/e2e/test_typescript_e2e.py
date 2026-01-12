@@ -9,7 +9,7 @@ from .base_e2e_test import TypeScriptE2ETest
 class TestTypeScriptE2E(TypeScriptE2ETest):
     """End-to-end tests for TypeScript repository using deno as target."""
 
-    EXPECTED_SYMBOL = "Deno"
+    EXPECTED_SYMBOL = "PQueue"
 
     # ===== INITIALIZATION TESTS =====
 

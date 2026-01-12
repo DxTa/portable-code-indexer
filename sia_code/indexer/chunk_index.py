@@ -120,6 +120,10 @@ class ChunkIndex:
                 logger.error(f"Corrupted chunk index, starting fresh: {e}")
                 self.files = {}
                 self.dirty = True
+        else:
+            # New chunk index - mark dirty so it gets created on save
+            self.dirty = True
+            logger.info("Creating new chunk index")
 
     def save(self):
         """Save chunk index to disk."""
