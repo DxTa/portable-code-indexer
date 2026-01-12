@@ -119,27 +119,31 @@ class CASTChunker:
     def _split_chunk(self, chunk: Chunk) -> list[Chunk]:
         """Split an oversized chunk at logical boundaries.
 
-        Simple implementation: split by lines
+        Simple implementation: split by lines, tracking absolute line numbers.
         """
         lines = chunk.code.split("\n")
         target_size = self.config.max_chunk_size
-        
+
         sub_chunks = []
         current_lines = []
         current_size = 0
-        current_start = chunk.start_line
+        # Track start index within lines array (0-based)
+        chunk_start_idx = 0
 
         for i, line in enumerate(lines):
             line_size = len(line.replace(" ", "").replace("\t", ""))
-            
+
             if current_size + line_size > target_size and current_lines:
                 # Create chunk from accumulated lines
                 code = "\n".join(current_lines)
+                # Calculate absolute line numbers from chunk's start + offset in lines array
+                abs_start = chunk.start_line + chunk_start_idx
+                abs_end = abs_start + len(current_lines) - 1
                 sub_chunks.append(
                     Chunk(
-                        symbol=f"{chunk.symbol}_part{len(sub_chunks)+1}",
-                        start_line=current_start,
-                        end_line=LineNumber(current_start + len(current_lines) - 1),
+                        symbol=f"{chunk.symbol}_part{len(sub_chunks) + 1}",
+                        start_line=LineNumber(abs_start),
+                        end_line=LineNumber(abs_end),
                         code=code,
                         chunk_type=chunk.chunk_type,
                         language=chunk.language,
@@ -147,9 +151,10 @@ class CASTChunker:
                         parent_header=chunk.parent_header,
                     )
                 )
+                # Reset for next chunk - new chunk starts at current line index
+                chunk_start_idx = i
                 current_lines = [line]
                 current_size = line_size
-                current_start = LineNumber(current_start + len(current_lines))
             else:
                 current_lines.append(line)
                 current_size += line_size
@@ -157,11 +162,13 @@ class CASTChunker:
         # Add remaining lines
         if current_lines:
             code = "\n".join(current_lines)
+            abs_start = chunk.start_line + chunk_start_idx
+            abs_end = abs_start + len(current_lines) - 1
             sub_chunks.append(
                 Chunk(
-                    symbol=f"{chunk.symbol}_part{len(sub_chunks)+1}",
-                    start_line=current_start,
-                    end_line=LineNumber(current_start + len(current_lines) - 1),
+                    symbol=f"{chunk.symbol}_part{len(sub_chunks) + 1}",
+                    start_line=LineNumber(abs_start),
+                    end_line=LineNumber(abs_end),
                     code=code,
                     chunk_type=chunk.chunk_type,
                     language=chunk.language,
@@ -177,17 +184,21 @@ class CASTChunker:
         if len(chunks) <= 1:
             return chunks
 
-        merged = [chunks[0]]
-        
-        for chunk in chunks[1:]:
+        # Sort chunks by file path and start line to ensure correct merge order
+        sorted_chunks = sorted(chunks, key=lambda c: (c.file_path, c.start_line))
+        merged = [sorted_chunks[0]]
+
+        for chunk in sorted_chunks[1:]:
             last_chunk = merged[-1]
-            
+
             # Check if chunks are adjacent and both small
             if (
                 last_chunk.file_path == chunk.file_path
                 and last_chunk.end_line + 1 >= chunk.start_line
-                and self._chunk_size(last_chunk) < self.config.max_chunk_size * self.config.merge_threshold
-                and self._chunk_size(chunk) < self.config.max_chunk_size * self.config.merge_threshold
+                and self._chunk_size(last_chunk)
+                < self.config.max_chunk_size * self.config.merge_threshold
+                and self._chunk_size(chunk)
+                < self.config.max_chunk_size * self.config.merge_threshold
             ):
                 # Merge
                 merged_code = last_chunk.code + "\n" + chunk.code
@@ -210,7 +221,7 @@ class CASTChunker:
         """Remove duplicate chunks based on content."""
         seen_codes = set()
         unique_chunks = []
-        
+
         for chunk in chunks:
             # Use normalized code as key
             code_key = chunk.code.strip()

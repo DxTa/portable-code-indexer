@@ -24,6 +24,8 @@ class IndexingConfig(BaseModel):
             "node_modules/",
             "__pycache__/",
             ".git/",
+            "venv/",
+            ".venv/",
             "*.pyc",
             "*.pyo",
             "*.so",

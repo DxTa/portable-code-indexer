@@ -6,7 +6,14 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    MofNCompleteColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 
 from . import __version__
@@ -15,6 +22,51 @@ from .indexer.coordinator import IndexingCoordinator
 from .storage.backend import MemvidBackend
 
 console = Console()
+
+
+def _display_skip_summary(
+    console: Console, skipped: dict, verbose: bool = False, max_file_size_mb: float = 5.0
+):
+    """Display skip summary with optional file details.
+
+    Args:
+        console: Rich console for output
+        skipped: Dictionary with skip categories
+        verbose: Whether to show file names
+        max_file_size_mb: Maximum file size threshold for display
+    """
+    total_skipped = sum(len(v) for v in skipped.values())
+    if total_skipped == 0:
+        return
+
+    console.print(f"  Files skipped: {total_skipped}")
+
+    categories = [
+        ("unsupported_language", "Unsupported language"),
+        ("empty_content", "Empty/minimal content"),
+        ("parse_errors", "Parse errors"),
+        ("too_large", f"Too large (>{max_file_size_mb}MB)"),
+    ]
+
+    for key, label in categories:
+        items = skipped.get(key, [])
+        if not items:
+            continue
+        console.print(f"    - {label}: {len(items)}")
+
+        if verbose and items:
+            # Show first 3 files
+            display_items = items[:3]
+            for item in display_items:
+                if isinstance(item, tuple):
+                    path, detail = item
+                    # Shorten error messages
+                    short_detail = detail if len(detail) < 50 else detail[:47] + "..."
+                    console.print(f"        [dim]{Path(path).name}: {short_detail}[/dim]")
+                else:
+                    console.print(f"        [dim]{Path(item).name}[/dim]")
+            if len(items) > 3:
+                console.print(f"        [dim]... and {len(items) - 3} more[/dim]")
 
 
 def setup_logging(verbose: bool = False):
@@ -108,7 +160,9 @@ def init(path: str):
     default=2.0,
     help="Seconds to wait before reindexing after changes (default: 2.0)",
 )
+@click.pass_context
 def index(
+    ctx: click.Context,
     path: str,
     update: bool,
     clean: bool,
@@ -118,6 +172,9 @@ def index(
     debounce: float,
 ):
     """Index codebase for search."""
+    # Get verbose flag from parent context
+    verbose = ctx.parent.params.get("verbose", False) if ctx.parent else False
+
     sia_dir = Path(".sia-code")
     if not sia_dir.exists():
         console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
@@ -169,9 +226,27 @@ def index(
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
         console=console,
     ) as progress:
         task = progress.add_task("Discovering files...", total=None)
+
+        def update_progress(stage: str, current: int, total: int, desc: str):
+            """Update progress display based on indexing stage."""
+            if stage == "discovering":
+                progress.update(task, description="Discovering files...")
+            elif stage == "checking":
+                # For incremental mode, show checking phase
+                if progress.tasks[task].total is None:
+                    progress.update(task, total=total, completed=0)
+                progress.update(task, completed=current, description=f"Checking: {desc}")
+            elif stage == "indexing":
+                # Switch to progress bar when indexing starts
+                if progress.tasks[task].total is None:
+                    progress.update(task, total=total, completed=0)
+                progress.update(task, completed=current, description=f"Indexing: {desc}")
 
         try:
             if update:
@@ -182,12 +257,20 @@ def index(
                 cache = HashCache(sia_dir / "cache" / "file_hashes.json")
                 chunk_index = ChunkIndex(sia_dir / "chunk_index.json")
 
-                stats = coordinator.index_directory_incremental_v2(directory, cache, chunk_index)
+                stats = coordinator.index_directory_incremental_v2(
+                    directory, cache, chunk_index, progress_callback=update_progress
+                )
 
                 console.print("\n[green]✓ Incremental indexing complete (v2.0)[/green]")
                 console.print(f"  Changed files: {stats['changed_files']}")
-                console.print(f"  Skipped files: {stats['skipped_files']}")
+                console.print(f"  Unchanged files: {stats['skipped_files']}")
                 console.print(f"  Indexed files: {stats['indexed_files']}/{stats['total_files']}")
+                _display_skip_summary(
+                    console,
+                    stats.get("skipped", {}),
+                    verbose=verbose,
+                    max_file_size_mb=config.indexing.max_file_size_mb,
+                )
                 console.print(f"  Total chunks: {stats['total_chunks']}")
 
                 # Show staleness info
@@ -200,13 +283,23 @@ def index(
             else:
                 # Full indexing (parallel by default)
                 if parallel:
-                    stats = coordinator.index_directory_parallel(directory, max_workers=workers)
+                    stats = coordinator.index_directory_parallel(
+                        directory, max_workers=workers, progress_callback=update_progress
+                    )
                 else:
-                    stats = coordinator.index_directory(directory)
+                    stats = coordinator.index_directory(
+                        directory, progress_callback=update_progress
+                    )
                 progress.update(task, completed=True)
 
                 console.print("\n[green]✓ Indexing complete[/green]")
-                console.print(f"  Files indexed: {stats['indexed_files']}/{stats['total_files']}")
+                console.print(f"  Files indexed: {stats['indexed_files']}")
+                _display_skip_summary(
+                    console,
+                    stats.get("skipped", {}),
+                    verbose=verbose,
+                    max_file_size_mb=config.indexing.max_file_size_mb,
+                )
                 console.print(f"  Total chunks: {stats['total_chunks']}")
 
             # Show performance metrics if available

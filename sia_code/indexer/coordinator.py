@@ -6,7 +6,7 @@ import logging
 import time
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import cast
+from typing import cast, Callable
 
 import pathspec
 
@@ -111,11 +111,14 @@ class IndexingCoordinator:
 
         return [], f"Failed after {max_retries} retries"
 
-    def index_directory(self, directory: Path) -> dict:
+    def index_directory(
+        self, directory: Path, progress_callback: Callable[[str, int, int, str], None] | None = None
+    ) -> dict:
         """Index all files in a directory.
 
         Args:
             directory: Root directory to index
+            progress_callback: Optional callback for progress updates
 
         Returns:
             Statistics dictionary
@@ -123,23 +126,42 @@ class IndexingCoordinator:
         # Start performance tracking
         metrics = PerformanceMetrics()
 
+        # Notify discovery phase
+        if progress_callback:
+            progress_callback("discovering", 0, 0, "Scanning directory...")
+
         # Discover files
         files = self._discover_files(directory)
+
+        # Notify indexing phase start
+        if progress_callback:
+            progress_callback("indexing", 0, len(files), f"Found {len(files)} files")
 
         stats = {
             "total_files": len(files),
             "indexed_files": 0,
+            "skipped": {
+                "unsupported_language": [],
+                "empty_content": [],
+                "parse_errors": [],
+                "too_large": [],
+            },
             "total_chunks": 0,
             "errors": [],
             "metrics": None,  # Will be filled at end
         }
 
         # Process each file
-        for file_path in files:
+        for idx, file_path in enumerate(files, 1):
+            # Update progress
+            if progress_callback:
+                progress_callback("indexing", idx, len(files), file_path.name)
+
             try:
                 language = Language.from_extension(file_path.suffix)
 
                 if not self.chunker.engine.is_supported(language):
+                    stats["skipped"]["unsupported_language"].append(str(file_path))
                     logger.debug(f"Skipping unsupported language: {file_path}")
                     continue
 
@@ -147,6 +169,7 @@ class IndexingCoordinator:
                 chunks, error = self._index_file_with_retry(file_path, language)
 
                 if error:
+                    stats["skipped"]["parse_errors"].append((str(file_path), error))
                     stats["errors"].append(f"{file_path}: {error}")
                     metrics.errors_count += 1
                     continue
@@ -165,9 +188,13 @@ class IndexingCoordinator:
                     metrics.files_processed += 1
                     metrics.chunks_created += len(chunks)
                     logger.info(f"Indexed {file_path}: {len(chunks)} chunks")
+                else:
+                    # Empty content - no chunks produced
+                    stats["skipped"]["empty_content"].append(str(file_path))
 
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
+                stats["skipped"]["parse_errors"].append((str(file_path), error_msg))
                 stats["errors"].append(f"{file_path}: {error_msg}")
                 metrics.errors_count += 1
                 logger.exception(f"Unexpected error indexing {file_path}")
@@ -179,12 +206,18 @@ class IndexingCoordinator:
 
         return stats
 
-    def index_directory_parallel(self, directory: Path, max_workers: int | None = None) -> dict:
+    def index_directory_parallel(
+        self,
+        directory: Path,
+        max_workers: int | None = None,
+        progress_callback: Callable[[str, int, int, str], None] | None = None,
+    ) -> dict:
         """Index all files in a directory using parallel processing.
 
         Args:
             directory: Root directory to index
             max_workers: Number of worker processes (default: CPU count)
+            progress_callback: Optional callback for progress updates
 
         Returns:
             Statistics dictionary
@@ -192,12 +225,26 @@ class IndexingCoordinator:
         # Start performance tracking
         metrics = PerformanceMetrics()
 
+        # Notify discovery phase
+        if progress_callback:
+            progress_callback("discovering", 0, 0, "Scanning directory...")
+
         # Discover files
         files = self._discover_files(directory)
+
+        # Notify indexing phase start
+        if progress_callback:
+            progress_callback("indexing", 0, len(files), f"Found {len(files)} files")
 
         stats = {
             "total_files": len(files),
             "indexed_files": 0,
+            "skipped": {
+                "unsupported_language": [],
+                "empty_content": [],
+                "parse_errors": [],
+                "too_large": [],
+            },
             "total_chunks": 0,
             "errors": [],
             "metrics": None,
@@ -226,11 +273,18 @@ class IndexingCoordinator:
             }
 
             # Collect results as they complete
+            completed_count = 0
             for future in as_completed(future_to_file):
                 try:
                     file_path, chunks, error, file_size = future.result()
+                    completed_count += 1
+
+                    # Update progress
+                    if progress_callback:
+                        progress_callback("indexing", completed_count, len(files), file_path.name)
 
                     if error:
+                        stats["skipped"]["parse_errors"].append((str(file_path), error))
                         stats["errors"].append(f"{file_path}: {error}")
                         metrics.errors_count += 1
                         continue
@@ -246,10 +300,14 @@ class IndexingCoordinator:
                         metrics.files_processed += 1
                         metrics.chunks_created += len(chunks)
                         logger.info(f"Indexed {file_path}: {len(chunks)} chunks")
+                    else:
+                        # Empty content - no chunks produced (unsupported language or truly empty)
+                        stats["skipped"]["empty_content"].append(str(file_path))
 
                 except Exception as e:
                     file_path = future_to_file[future]
                     error_msg = f"Unexpected error: {str(e)}"
+                    stats["skipped"]["parse_errors"].append((str(file_path), error_msg))
                     stats["errors"].append(f"{file_path}: {error_msg}")
                     metrics.errors_count += 1
                     logger.exception(f"Unexpected error processing {file_path}")
@@ -293,7 +351,11 @@ class IndexingCoordinator:
         return files
 
     def index_directory_incremental_v2(
-        self, directory: Path, cache: HashCache, chunk_index: ChunkIndex
+        self,
+        directory: Path,
+        cache: HashCache,
+        chunk_index: ChunkIndex,
+        progress_callback: Callable[[str, int, int, str], None] | None = None,
     ) -> dict:
         """Index only changed files using hash cache and chunk index (v2.0).
 
@@ -301,6 +363,7 @@ class IndexingCoordinator:
             directory: Root directory to index
             cache: Hash cache for change detection
             chunk_index: Chunk index for tracking valid/stale chunks
+            progress_callback: Optional callback for progress updates
 
         Returns:
             Statistics dictionary
@@ -308,19 +371,39 @@ class IndexingCoordinator:
         # Start performance tracking
         metrics = PerformanceMetrics()
 
+        # Notify discovery phase
+        if progress_callback:
+            progress_callback("discovering", 0, 0, "Scanning directory...")
+
         files = self._discover_files(directory)
+
+        # Notify checking phase
+        if progress_callback:
+            progress_callback(
+                "checking", 0, len(files), f"Checking {len(files)} files for changes..."
+            )
 
         stats = {
             "total_files": len(files),
             "changed_files": 0,
             "skipped_files": 0,
             "indexed_files": 0,
+            "skipped": {
+                "unsupported_language": [],
+                "empty_content": [],
+                "parse_errors": [],
+                "too_large": [],
+            },
             "total_chunks": 0,
             "errors": [],
             "metrics": None,  # Will be filled at end
         }
 
-        for file_path in files:
+        for idx, file_path in enumerate(files, 1):
+            # Update progress for checking phase
+            if progress_callback:
+                progress_callback("checking", idx, len(files), file_path.name)
+
             # Check if file changed
             if not cache.has_changed(file_path):
                 stats["skipped_files"] += 1
@@ -328,10 +411,15 @@ class IndexingCoordinator:
 
             stats["changed_files"] += 1
 
+            # Update progress for indexing phase
+            if progress_callback:
+                progress_callback("indexing", stats["changed_files"], len(files), file_path.name)
+
             try:
                 language = Language.from_extension(file_path.suffix)
 
                 if not self.chunker.engine.is_supported(language):
+                    stats["skipped"]["unsupported_language"].append(str(file_path))
                     logger.debug(f"Skipping unsupported language: {file_path}")
                     continue
 
@@ -339,6 +427,7 @@ class IndexingCoordinator:
                 chunks, error = self._index_file_with_retry(file_path, language)
 
                 if error:
+                    stats["skipped"]["parse_errors"].append((str(file_path), error))
                     stats["errors"].append(f"{file_path}: {error}")
                     metrics.errors_count += 1
                     continue
@@ -370,9 +459,13 @@ class IndexingCoordinator:
                     metrics.files_processed += 1
                     metrics.chunks_created += len(chunks)
                     logger.info(f"Re-indexed {file_path}: {len(chunks)} chunks")
+                else:
+                    # Empty content - no chunks produced
+                    stats["skipped"]["empty_content"].append(str(file_path))
 
             except Exception as e:
                 error_msg = f"Unexpected error: {str(e)}"
+                stats["skipped"]["parse_errors"].append((str(file_path), error_msg))
                 stats["errors"].append(f"{file_path}: {error_msg}")
                 metrics.errors_count += 1
                 logger.exception(f"Unexpected error indexing {file_path}")
@@ -594,9 +687,11 @@ class IndexingCoordinator:
         # Atomic swap: rename new index to replace old
         logger.info("Performing atomic index swap...")
 
+        # Define backup path before try block
+        backup_path = old_index_path.parent / "index-backup.mv2"
+
         try:
             # Backup old index
-            backup_path = old_index_path.parent / "index-backup.mv2"
             if old_index_path.exists():
                 old_index_path.rename(backup_path)
 
