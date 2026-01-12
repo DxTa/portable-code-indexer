@@ -55,5 +55,6 @@ Thumbs.db
 # Ruff
 .ruff_cache/
 
-# Build artifacts (keep dist/ for releases)
-# dist/ is NOT ignored - we want to track release wheels
+# Build artifacts
+dist/
+*.whl
