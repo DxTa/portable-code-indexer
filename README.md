@@ -1,214 +1,118 @@
 # PCI - Portable Code Index
 
-**v2.4** - Production-grade local-first codebase intelligence with interactive search and watch mode.
+**v2.4** - Local-first codebase search with semantic understanding and multi-hop code discovery.
 
 ## Features
 
-- **cAST Algorithm** - Semantic code chunking via Abstract Syntax Tree
-- **Multi-Hop Code Research** - Automatically discovers interconnected code relationships
-- **12 Language Support** - Python, JS/TS, Go, Rust, Java, C/C++, C#, Ruby, PHP
-- **Interactive Search** (v2.4) - Live search with result navigation and export
-- **Watch Mode** (v2.4) - Auto-reindex on file changes with debouncing
-- **4 Output Formats** (v2.3) - Text, JSON, table, CSV for any workflow
-- **Chunk Metadata Sidecar** - Tracks valid/stale chunks, filters outdated code from results
-- **Index Compaction** - `pci compact` removes stale chunks, keeps index healthy
-- **Semantic Search** - Natural language queries (requires OpenAI API key)
-- **Lexical Search** - Pattern matching without API keys
-- **Local-First** - All code stays on your machine
-- **Portable** - Single .mv2 file storage (no database required)
-- **Performance Metrics** - Real-time indexing throughput tracking
+- **Semantic Search** - Natural language queries with OpenAI embeddings (auto-fallback to lexical)
+- **Multi-Hop Research** - Automatically discover code relationships and call graphs
+- **12 Languages** - Python, JS/TS, Go, Rust, Java, C/C++, C#, Ruby, PHP (full AST support)
+- **Interactive Mode** - Live search with result navigation and export
+- **Watch Mode** - Auto-reindex on file changes
+- **Portable** - Single `.mv2` file storage, no database required
 
 ## Installation
 
-### From Wheel File (Recommended)
-
 ```bash
-# Download the wheel file, then:
-pip install portable_code_index-2.4.0-py3-none-any.whl
+# Try without installing (recommended for first use)
+uvx --from git+https://github.com/DxTa/portable-code-indexer.git pci --help
 
-# Run via module
-python -m pci.cli --help
-```
+# Install permanently
+uv tool install git+https://github.com/DxTa/portable-code-indexer.git
 
-### From Source (Development)
-
-```bash
-git clone https://github.com/pci-project/portable-code-index.git
-cd portable-code-index/pci
-pip install -e .
-```
-
-### Build Wheel Locally
-
-```bash
-pip install build
-python -m build --wheel
-# Output: dist/portable_code_index-2.4.0-py3-none-any.whl
+# Verify installation
+pci --version
 ```
 
 ## Quick Start
 
 ```bash
-# Initialize index in current directory
+# Initialize and index
 pci init
-
-# Index your codebase
 pci index .
 
-# Incremental re-index (only changed files)
-pci index --update
+# Search
+pci search "authentication logic"           # Semantic search
+pci search --regex "def.*login"             # Regex search
 
-# Clean rebuild (removes everything and rebuilds)
-pci index --clean
-
-# Check index health (v2.0)
-pci status
-
-# Compact index to remove stale chunks (v2.0)
-pci compact
-
-# Search semantically
-pci search "find authentication logic"
-
-# Search with regex/lexical
-pci search --regex "def.*auth"
-
-# Multi-hop code research
+# Multi-hop research (discover relationships)
 pci research "how does the API handle errors?"
 
-# Output Formats (v2.3)
-pci search "query" --format json          # JSON format
-pci search "query" --format table         # Rich table format
-pci search "query" --format csv           # CSV format (Excel/spreadsheet)
-pci search "query" --format text          # Default text format
-
-# Save Results to File (v2.3)
-pci search "query" --output results.json --format json
-pci search "query" --output results.txt
-
-# Configuration Management (v2.3)
-pci config show                           # Display configuration
-pci config path                           # Show config file path
-pci config edit                           # Open in $EDITOR
-
-# Interactive Search (v2.4)
-pci interactive                           # Live search with result navigation
-pci interactive --regex                   # Interactive lexical search
-
-# Watch Mode (v2.4)
-pci index . --watch                       # Auto-reindex on file changes
-pci index . --watch --debounce 5.0        # Custom debounce time (seconds)
+# Check index health
+pci status
 ```
 
-For comprehensive usage examples, see [EXAMPLES.md](EXAMPLES.md).
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `pci init` | Initialize index in current directory |
+| `pci index .` | Index codebase (first time) |
+| `pci index --update` | Re-index only changed files (10x faster) |
+| `pci index --clean` | Full rebuild from scratch |
+| `pci index --watch` | Auto-reindex on file changes |
+| `pci search "query"` | Semantic or regex search |
+| `pci research "question"` | Multi-hop code discovery with `--graph` |
+| `pci interactive` | Live search mode with result navigation |
+| `pci status` | Index health and staleness metrics |
+| `pci compact` | Remove stale chunks when index grows |
+| `pci config show` | View configuration |
 
 ## Configuration
 
-Configuration is stored in `.pci/config.json`:
+**Semantic search** requires OpenAI API key (optional):
 
-```json
-{
-  "embedding": {
-    "enabled": true,
-    "provider": "openai",
-    "model": "openai-small",
-    "api_key_env": "OPENAI_API_KEY",
-    "dimensions": 1536
-  },
-  "indexing": {
-    "exclude_patterns": ["node_modules/", "__pycache__/"],
-    "max_file_size_mb": 5
-  },
-  "chunking": {
-    "max_chunk_size": 1200,
-    "min_chunk_size": 50
-  }
-}
-```
-
-### Embedding Models
-
-PCI supports multiple embedding providers for semantic search:
-
-| Model | Dimensions | Use Case |
-|-------|-----------|----------|
-| `openai-small` | 1536 | Default, balanced quality/cost |
-| `openai-large` | 3072 | Higher quality, more expensive |
-| `bge-small` | 384 | Local/offline, no API key needed |
-
-**Setup for OpenAI models:**
 ```bash
 export OPENAI_API_KEY=sk-your-key-here
 pci init
 pci index .
 ```
 
-**For local/offline usage:**
-Edit `.pci/config.json`:
-```json
-{
-  "embedding": {
-    "enabled": true,
-    "provider": "local",
-    "model": "bge-small"
-  }
-}
-```
+**Without API key:** Searches automatically fallback to lexical/regex mode. No crashes.
 
-**Automatic Fallback:**
-- If `OPENAI_API_KEY` is not set, embeddings are automatically disabled with a warning
-- Semantic search (`pci search "query"`) automatically falls back to lexical search
-- Explicit lexical search always available: `pci search --regex "pattern"`
-- No crashes or failures - just works with reduced functionality
+**Edit config** at `.pci/config.json` to:
+- Change embedding model (`openai-small`, `openai-large`, `bge-small`)
+- Exclude patterns (`node_modules/`, `__pycache__/`, etc.)
+- Adjust chunk sizes
+
+View config: `pci config show`
+
+## Output Formats
+
+```bash
+pci search "query" --format json            # JSON output
+pci search "query" --format table           # Rich table
+pci search "query" --format csv             # CSV for Excel
+pci search "query" --output results.json    # Save to file
+```
 
 ## Supported Languages
 
-### Programming Languages (Full AST Support)
-**Actively Parsed:** Python, JavaScript, TypeScript, JSX, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP
+**Full AST Support (12):** Python, JavaScript, TypeScript, JSX, TSX, Go, Rust, Java, C, C++, C#, Ruby, PHP
 
-**Recognized:** Kotlin, Groovy, Haskell, Swift, Bash, MATLAB, Makefile, Objective-C, Vue, Svelte, Zig
+**Recognized:** Kotlin, Groovy, Swift, Bash, Vue, Svelte, and more (indexed as text)
 
-### Configuration & Markup
-JSON, YAML, TOML, HCL, Markdown
+## Troubleshooting
 
-### Other
-Text files, PDF
-
-**Note:** Languages with "Full AST Support" use Tree-sitter for semantic chunking (functions, classes, methods). Other recognized languages are indexed as text.
+| Issue | Solution |
+|-------|----------|
+| No API key warning | Normal - searches fallback to lexical mode |
+| Index growing large | Run `pci compact` to remove stale chunks |
+| Slow indexing | Use `pci index --update` for incremental |
+| Stale search results | Run `pci index --clean` to rebuild |
 
 ## How It Works
 
 1. **Parse** - Tree-sitter generates AST for each file
-2. **Extract** - Semantic concepts identified (functions, classes, blocks)
-3. **Chunk** - cAST algorithm splits and merges intelligently
-4. **Store** - Chunks saved in Memvid .mv2 file with embeddings
-5. **Search** - Hybrid semantic + lexical search
+2. **Chunk** - cAST algorithm creates semantic chunks (functions, classes)
+3. **Embed** - Optional OpenAI embeddings for semantic search
+4. **Store** - Single portable `.mv2` file with Memvid
+5. **Search** - Hybrid BM25 + vector similarity
 
-## Architecture
+## Links
 
-- **Storage**: Memvid (single .mv2 file)
-- **Parsing**: Tree-sitter
-- **Embeddings**: Local (bge-small) or OpenAI/Voyage
-- **Search**: Hybrid (BM25 + vector similarity)
-
-## v2.0 - Solved Chunk Accumulation Problem!
-
-PCI v2.0 introduces **Chunk Metadata Sidecar** which solves the chunk accumulation problem:
-
-- ✅ **Automatic Stale Filtering** - Searches automatically exclude outdated chunks
-- ✅ **Index Compaction** - `pci compact` removes stale chunks and reduces index size
-- ✅ **Health Monitoring** - `pci status` shows staleness metrics and recommendations
-- ✅ **Production Ready** - No more unbounded index growth!
-
-See [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for migration details from v1.0.
-
-## Future Enhancements
-
-See [FUTURE_WORK.md](FUTURE_WORK.md) for planned v2.0 features including:
-- Automatic stale chunk detection
-- Chunk metadata sidecar
-- Index compaction
-- Multi-language expansion
+- [ROADMAP.md](ROADMAP.md) - Future development plans
+- [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) - Current limitations and workarounds
 
 ## License
 
