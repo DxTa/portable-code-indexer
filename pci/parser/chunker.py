@@ -6,7 +6,7 @@ from pathlib import Path
 from .concepts import ConceptExtractor, UniversalConcept
 from .engine import TreeSitterEngine
 from ..core.models import Chunk
-from ..core.types import ChunkType, FilePath, Language, LineNumber
+from ..core.types import FilePath, Language, LineNumber
 
 
 @dataclass

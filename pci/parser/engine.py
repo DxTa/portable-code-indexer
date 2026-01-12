@@ -100,7 +100,7 @@ class TreeSitterEngine:
             with open(file_path, "rb") as f:
                 source_code = f.read()
             return self.parse_code(source_code, language)
-        except Exception as e:
+        except Exception:
             # Silent fail for individual files
             return None
 
@@ -116,7 +116,7 @@ class TreeSitterEngine:
             parser = self._parsers[language]
             tree = parser.parse(source_code)
             return tree.root_node
-        except Exception as e:
+        except Exception:
             return None
 
     def is_supported(self, language: PciLanguage) -> bool:

@@ -82,7 +82,7 @@ def init(path: str):
     backend.create_index()
 
     console.print(f"[green]✓[/green] Initialized PCI at {pci_dir}")
-    console.print(f"[dim]Next: pci index [path][/dim]")
+    console.print("[dim]Next: pci index [path][/dim]")
 
 
 @main.command()
@@ -162,7 +162,7 @@ def index(
 
     if update:
         console.print(f"[cyan]Incremental indexing {directory}...[/cyan]")
-        console.print(f"[dim]Checking for changes...[/dim]")
+        console.print("[dim]Checking for changes...[/dim]")
     else:
         console.print(f"[cyan]Indexing {directory}...[/cyan]")
 
@@ -184,7 +184,7 @@ def index(
 
                 stats = coordinator.index_directory_incremental_v2(directory, cache, chunk_index)
 
-                console.print(f"\n[green]✓ Incremental indexing complete (v2.0)[/green]")
+                console.print("\n[green]✓ Incremental indexing complete (v2.0)[/green]")
                 console.print(f"  Changed files: {stats['changed_files']}")
                 console.print(f"  Skipped files: {stats['skipped_files']}")
                 console.print(f"  Indexed files: {stats['indexed_files']}/{stats['total_files']}")
@@ -205,14 +205,14 @@ def index(
                     stats = coordinator.index_directory(directory)
                 progress.update(task, completed=True)
 
-                console.print(f"\n[green]✓ Indexing complete[/green]")
+                console.print("\n[green]✓ Indexing complete[/green]")
                 console.print(f"  Files indexed: {stats['indexed_files']}/{stats['total_files']}")
                 console.print(f"  Total chunks: {stats['total_chunks']}")
 
             # Show performance metrics if available
             if stats.get("metrics"):
                 m = stats["metrics"]
-                console.print(f"\n[dim]Performance:[/dim]")
+                console.print("\n[dim]Performance:[/dim]")
                 console.print(f"  Duration: {m['duration_seconds']}s")
                 console.print(
                     f"  Throughput: {m['files_per_second']:.1f} files/s, {m['chunks_per_second']:.1f} chunks/s"
@@ -220,7 +220,7 @@ def index(
                 console.print(f"  Processed: {m['mb_per_second']:.2f} MB/s")
 
             if stats["errors"]:
-                console.print(f"\n[yellow]Warnings:[/yellow]")
+                console.print("\n[yellow]Warnings:[/yellow]")
                 for error in stats["errors"][:5]:  # Show first 5 errors
                     console.print(f"  {error}")
                 if len(stats["errors"]) > 5:
@@ -306,7 +306,7 @@ def index(
                 finally:
                     self.pending_changes.clear()
 
-        console.print(f"\n[bold cyan]Watch Mode Active[/bold cyan]")
+        console.print("\n[bold cyan]Watch Mode Active[/bold cyan]")
         console.print(f"[dim]Monitoring: {Path(path).absolute()}[/dim]")
         console.print(f"[dim]Debounce: {debounce}s[/dim]")
         console.print("[dim]Press Ctrl+C to stop[/dim]\n")
@@ -489,8 +489,6 @@ def interactive(regex: bool, limit: int):
     """
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.keys import Keys
     except ImportError:
         console.print("[red]Error: prompt-toolkit not installed[/red]")
         console.print("[dim]Install with: pip install prompt-toolkit>=3.0[/dim]")
@@ -674,7 +672,7 @@ def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool)
         progress.update(task, completed=True)
 
     # Display results summary
-    console.print(f"\n[bold green]✓ Research Complete[/bold green]")
+    console.print("\n[bold green]✓ Research Complete[/bold green]")
     console.print(f"  Found: {len(result.chunks)} related code chunks")
     console.print(f"  Relationships: {len(result.relationships)}")
     console.print(f"  Entities discovered: {result.total_entities_found}")
@@ -848,7 +846,7 @@ def compact(path: str, threshold: float, force: bool):
     chunk_index = ChunkIndex(chunk_index_path)
     summary = chunk_index.get_staleness_summary()
 
-    console.print(f"[cyan]Index Health Check[/cyan]")
+    console.print("[cyan]Index Health Check[/cyan]")
     console.print(f"  Total chunks: {summary.total_chunks:,}")
     console.print(f"  Valid chunks: {summary.valid_chunks:,}")
     console.print(f"  Stale chunks: {summary.stale_chunks:,}")
@@ -881,7 +879,7 @@ def compact(path: str, threshold: float, force: bool):
             if not stats["compaction_needed"]:
                 console.print(f"\n[green]✓ {stats['message']}[/green]")
             else:
-                console.print(f"\n[green]✓ Compaction complete[/green]")
+                console.print("\n[green]✓ Compaction complete[/green]")
                 console.print(f"  Files reindexed: {stats['files_reindexed']}")
                 console.print(f"  Chunks stored: {stats['chunks_stored']}")
                 console.print(
@@ -891,7 +889,7 @@ def compact(path: str, threshold: float, force: bool):
 
                 if stats.get("metrics"):
                     m = stats["metrics"]
-                    console.print(f"\n[dim]Performance:[/dim]")
+                    console.print("\n[dim]Performance:[/dim]")
                     console.print(f"  Duration: {m['duration_seconds']}s")
                     console.print(
                         f"  Throughput: {m['files_per_second']:.1f} files/s, "
@@ -899,7 +897,7 @@ def compact(path: str, threshold: float, force: bool):
                     )
 
                 if stats["errors"]:
-                    console.print(f"\n[yellow]Warnings:[/yellow]")
+                    console.print("\n[yellow]Warnings:[/yellow]")
                     for error in stats["errors"][:5]:
                         console.print(f"  {error}")
                     if len(stats["errors"]) > 5:
@@ -960,7 +958,7 @@ def config_edit():
     editor = os.environ.get("EDITOR", "nano")
     try:
         subprocess.run([editor, str(config_path)], check=True)
-        console.print(f"[green]✓[/green] Configuration updated")
+        console.print("[green]✓[/green] Configuration updated")
 
         # Validate the edited config
         try:

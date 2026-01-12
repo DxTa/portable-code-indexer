@@ -6,7 +6,6 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Set
 
-from ..core.types import ChunkId
 
 logger = logging.getLogger(__name__)
 
