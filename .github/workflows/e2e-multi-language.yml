@@ -25,10 +25,10 @@ jobs:
             test_file: test_python_e2e.py
           
           - language: javascript
-            repo_url: https://github.com/sindresorhus/is
+            repo_url: https://github.com/sindresorhus/slugify
             sparse_paths: ""
             keyword: "function"
-            symbol: "is"
+            symbol: "slugify"
             test_file: test_javascript_e2e.py
           
           - language: typescript

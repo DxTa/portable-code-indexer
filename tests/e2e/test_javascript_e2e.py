@@ -9,7 +9,7 @@ from .base_e2e_test import JavaScriptE2ETest
 class TestJavaScriptE2E(JavaScriptE2ETest):
     """End-to-end tests for JavaScript repository using express as target."""
 
-    EXPECTED_SYMBOL = "Router"
+    EXPECTED_SYMBOL = "slugify"
 
     # ===== INITIALIZATION TESTS =====
 
