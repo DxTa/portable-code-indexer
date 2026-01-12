@@ -1,0 +1,144 @@
+"""Shared fixtures for E2E tests across multiple language repositories."""
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture(scope="session")
+def e2e_repo_url():
+    """Get repository URL from environment."""
+    return os.environ.get("E2E_REPO_URL", "")
+
+
+@pytest.fixture(scope="session")
+def e2e_sparse_paths():
+    """Get sparse checkout paths from environment."""
+    return os.environ.get("E2E_SPARSE_PATHS", "")
+
+
+@pytest.fixture(scope="session")
+def e2e_language():
+    """Get target language from environment."""
+    return os.environ.get("E2E_LANGUAGE", "python")
+
+
+@pytest.fixture(scope="session")
+def e2e_keyword():
+    """Get expected language keyword from environment."""
+    return os.environ.get("E2E_KEYWORD", "def")
+
+
+@pytest.fixture(scope="session")
+def e2e_symbol():
+    """Get expected symbol name from environment."""
+    return os.environ.get("E2E_SYMBOL", "main")
+
+
+@pytest.fixture(scope="session")
+def target_repo(tmp_path_factory, e2e_repo_url, e2e_sparse_paths):
+    """Clone target repository for testing.
+
+    Uses sparse checkout for large repos if E2E_SPARSE_PATHS is set.
+    Falls back to E2E_REPO_PATH if URL not provided.
+    """
+    # Check if repo path provided directly
+    repo_path_env = os.environ.get("E2E_REPO_PATH")
+    if repo_path_env:
+        repo_path = Path(repo_path_env).resolve()
+        if repo_path.exists():
+            return repo_path
+
+    # Clone repository
+    if not e2e_repo_url:
+        pytest.skip("E2E_REPO_URL not provided")
+
+    tmp_dir = tmp_path_factory.mktemp("repos")
+    repo_dir = tmp_dir / "target-repo"
+
+    try:
+        if e2e_sparse_paths:
+            # Sparse checkout for large repos
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--filter=blob:none",
+                    "--sparse",
+                    e2e_repo_url,
+                    str(repo_dir),
+                ],
+                check=True,
+                capture_output=True,
+            )
+
+            # Set sparse checkout paths
+            subprocess.run(
+                ["git", "sparse-checkout", "set"] + e2e_sparse_paths.split(),
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+            )
+        else:
+            # Full shallow clone
+            subprocess.run(
+                ["git", "clone", "--depth", "1", e2e_repo_url, str(repo_dir)],
+                check=True,
+                capture_output=True,
+            )
+
+        yield repo_dir
+    finally:
+        # Cleanup
+        if repo_dir.exists():
+            shutil.rmtree(repo_dir, ignore_errors=True)
+
+
+@pytest.fixture(scope="session")
+def initialized_repo(target_repo):
+    """Initialize sia-code in the target repository."""
+    result = subprocess.run(
+        ["sia-code", "init"],
+        cwd=target_repo,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    if result.returncode != 0:
+        pytest.fail(f"Failed to initialize sia-code: {result.stderr}")
+
+    # Verify initialization
+    sia_dir = target_repo / ".sia-code"
+    assert sia_dir.exists(), ".sia-code directory not created"
+    assert (sia_dir / "config.json").exists(), "config.json not created"
+    assert (sia_dir / "index.mv2").exists(), "index.mv2 not created"
+
+    return target_repo
+
+
+@pytest.fixture(scope="session")
+def indexed_repo(initialized_repo):
+    """Index the target repository.
+
+    This fixture indexes the repository once per test session,
+    making all subsequent tests faster.
+    """
+    result = subprocess.run(
+        ["sia-code", "index", "."],
+        cwd=initialized_repo,
+        capture_output=True,
+        text=True,
+        timeout=600,  # 10 minute timeout for large repos
+    )
+
+    if result.returncode != 0:
+        pytest.fail(f"Failed to index repository: {result.stderr}")
+
+    # Verify indexing completed
+    assert "complete" in result.stdout.lower() or "indexed" in result.stdout.lower()
+
+    return initialized_repo

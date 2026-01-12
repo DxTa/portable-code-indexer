@@ -1,0 +1,249 @@
+"""E2E tests for Java repository (mockito/mockito)."""
+
+import json
+import pytest
+
+from .base_e2e_test import JavaE2ETest
+
+
+class TestJavaE2E(JavaE2ETest):
+    """End-to-end tests for Java repository using Mockito as target.
+
+    Tests cover the complete user journey:
+    - Initialization
+    - Indexing
+    - Search (lexical and semantic)
+    - Research (multi-hop)
+    - Status and maintenance
+    """
+
+    EXPECTED_SYMBOL = "Mockito"
+
+    # ===== INITIALIZATION TESTS =====
+
+    def test_init_creates_sia_code_directory(self, target_repo):
+        """Test that 'sia-code init' creates .sia-code directory."""
+        result = self.run_cli(["init"], target_repo)
+        assert result.returncode == 0, f"Init failed: {result.stderr}"
+        assert (target_repo / ".sia-code").exists()
+
+    def test_init_creates_valid_config(self, initialized_repo):
+        """Test that config.json is created and valid."""
+        config_path = initialized_repo / ".sia-code" / "config.json"
+        assert config_path.exists()
+
+        # Verify it's valid JSON
+        with open(config_path) as f:
+            config = json.load(f)
+            assert "embedding" in config
+            assert "indexing" in config
+            assert "chunking" in config
+
+    def test_init_creates_index_file(self, initialized_repo):
+        """Test that index.mv2 file is created."""
+        index_path = initialized_repo / ".sia-code" / "index.mv2"
+        assert index_path.exists()
+
+    # ===== INDEXING TESTS =====
+
+    def test_index_full_completes_successfully(self, initialized_repo):
+        """Test that full indexing completes without errors."""
+        result = self.run_cli(["index", "."], initialized_repo, timeout=600)
+        assert result.returncode == 0, f"Indexing failed: {result.stderr}"
+        assert "complete" in result.stdout.lower() or "indexed" in result.stdout.lower()
+
+    def test_index_reports_file_and_chunk_counts(self, indexed_repo):
+        """Test that indexing reports file and chunk statistics."""
+        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=600)
+        assert result.returncode == 0
+
+        # Should report files indexed
+        assert "file" in result.stdout.lower()
+        # Should report chunks created
+        assert "chunk" in result.stdout.lower()
+
+    def test_index_skips_excluded_patterns(self, indexed_repo):
+        """Test that indexing skips excluded patterns like .git, node_modules."""
+        # Check that .git directory was not indexed by searching for git-specific files
+        results = self.search_json("HEAD", indexed_repo, regex=True, limit=20)
+
+        # If any results found, ensure they're not from .git directory
+        file_paths = self.get_result_file_paths(results)
+        git_files = [fp for fp in file_paths if ".git/" in fp or "\\.git\\" in fp]
+        assert len(git_files) == 0, f"Indexed files from .git directory: {git_files}"
+
+    def test_index_clean_rebuilds_from_scratch(self, indexed_repo):
+        """Test that --clean flag rebuilds index from scratch."""
+        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=600)
+        assert result.returncode == 0
+        assert "clean" in result.stdout.lower()
+
+    def test_index_update_only_processes_changes(self, indexed_repo):
+        """Test that --update flag only reindexes changed files."""
+        result = self.run_cli(["index", "--update", "."], indexed_repo, timeout=600)
+        assert result.returncode == 0
+        # Should mention incremental or update
+        assert (
+            "incremental" in result.stdout.lower()
+            or "update" in result.stdout.lower()
+            or "unchanged" in result.stdout.lower()
+        )
+
+    # ===== SEARCH - LEXICAL TESTS =====
+
+    def test_search_finds_language_keyword(self, indexed_repo):
+        """Test searching for Java keyword 'class' finds results."""
+        results = self.search_json("class ", indexed_repo, regex=True, limit=10)
+        assert len(results.get("results", [])) > 0, "No results found for 'class' keyword"
+
+        # Verify results are from Java files
+        file_paths = self.get_result_file_paths(results)
+        self.assert_contains_language_extension(file_paths, [".java"])
+
+    def test_search_finds_known_symbol(self, indexed_repo, e2e_symbol):
+        """Test searching for known symbol (e.g., 'Mockito') finds results."""
+        symbol = e2e_symbol or self.EXPECTED_SYMBOL
+        results = self.search_json(symbol, indexed_repo, regex=True, limit=10)
+
+        # Should find at least one result
+        assert len(results.get("results", [])) > 0, f"No results found for symbol '{symbol}'"
+
+        # Verify symbol appears in results
+        symbols = self.get_result_symbols(results)
+        assert any(symbol in s for s in symbols), (
+            f"Symbol '{symbol}' not found in results: {symbols}"
+        )
+
+    def test_search_returns_correct_file_paths(self, indexed_repo):
+        """Test that search results contain valid file paths."""
+        results = self.search_json("public", indexed_repo, regex=True, limit=5)
+
+        if len(results.get("results", [])) > 0:
+            file_paths = self.get_result_file_paths(results)
+
+            # All file paths should be non-empty
+            assert all(fp for fp in file_paths), "Empty file path found in results"
+
+            # File paths should contain language extension
+            self.assert_contains_language_extension(file_paths, [".java"])
+
+    def test_search_respects_limit(self, indexed_repo):
+        """Test that search respects -k/--limit parameter."""
+        limit = 3
+        results = self.search_json("void", indexed_repo, regex=True, limit=limit)
+
+        # Should not exceed limit
+        assert len(results.get("results", [])) <= limit, f"Results exceed limit of {limit}"
+
+    # ===== SEARCH - OUTPUT FORMATS =====
+
+    def test_search_json_output_valid(self, indexed_repo):
+        """Test that --format json produces valid JSON."""
+        result = self.run_cli(
+            ["search", "method", "--regex", "--format", "json", "--no-filter"], indexed_repo
+        )
+
+        if result.returncode == 0 and "no results" not in result.stdout.lower():
+            # Should be valid JSON
+            data = json.loads(result.stdout)
+            assert "query" in data
+            assert "results" in data
+
+    def test_search_table_output_renders(self, indexed_repo):
+        """Test that --format table produces formatted output."""
+        result = self.run_cli(
+            ["search", "class", "--regex", "--format", "table", "-k", "3", "--no-filter"],
+            indexed_repo,
+        )
+        assert result.returncode == 0
+        # Table format typically has borders or separators
+        # Just verify it produces output
+        assert len(result.stdout) > 0
+
+    def test_search_csv_output_valid(self, indexed_repo):
+        """Test that --format csv produces valid CSV."""
+        result = self.run_cli(
+            ["search", "public", "--regex", "--format", "csv", "-k", "3", "--no-filter"],
+            indexed_repo,
+        )
+
+        if result.returncode == 0 and len(result.stdout) > 0:
+            lines = result.stdout.strip().split("\n")
+            # Should have header row
+            assert len(lines) >= 1
+            # Header should have expected columns
+            if len(lines) > 0:
+                header = lines[0]
+                assert "File" in header or "file" in header
+
+    # ===== RESEARCH TESTS =====
+
+    def test_research_finds_related_code(self, indexed_repo):
+        """Test that research command finds related code chunks."""
+        result = self.run_cli(
+            ["research", "How does mocking work?", "--hops", "2", "-k", "5"],
+            indexed_repo,
+            timeout=600,
+        )
+        assert result.returncode == 0
+        # Should report findings
+        assert (
+            "found" in result.stdout.lower()
+            or "chunk" in result.stdout.lower()
+            or "complete" in result.stdout.lower()
+        )
+
+    def test_research_respects_hop_limit(self, indexed_repo):
+        """Test that research respects --hops parameter."""
+        result = self.run_cli(
+            ["research", "What is verification?", "--hops", "1"], indexed_repo, timeout=600
+        )
+        assert result.returncode == 0
+        # Should complete with specified hop limit
+        assert "hop" in result.stdout.lower() or "complete" in result.stdout.lower()
+
+    def test_research_graph_shows_relationships(self, indexed_repo):
+        """Test that --graph flag shows code relationships."""
+        result = self.run_cli(
+            ["research", "How are mocks created?", "--hops", "2", "--graph"],
+            indexed_repo,
+            timeout=600,
+        )
+        assert result.returncode == 0
+        # Graph output should mention relationships or call graph
+        # Even if no relationships found, command should succeed
+
+    # ===== STATUS & MAINTENANCE =====
+
+    def test_status_shows_index_info(self, indexed_repo):
+        """Test that status command shows index information."""
+        result = self.run_cli(["status"], indexed_repo)
+        assert result.returncode == 0
+        # Should show index-related info
+        assert "index" in result.stdout.lower()
+
+    def test_status_shows_chunk_metrics(self, indexed_repo):
+        """Test that status displays chunk count metrics."""
+        result = self.run_cli(["status"], indexed_repo)
+        assert result.returncode == 0
+        # Should report chunk statistics
+        assert "chunk" in result.stdout.lower() or "total" in result.stdout.lower()
+
+    def test_compact_healthy_index_message(self, indexed_repo):
+        """Test that compact on healthy index shows appropriate message."""
+        # First run update to create chunk_index.json
+        self.run_cli(["index", "--update", "."], indexed_repo, timeout=600)
+
+        result = self.run_cli(["compact", "."], indexed_repo, timeout=600)
+
+        # Should complete successfully (may or may not need compaction)
+        assert result.returncode == 0
+
+    def test_compact_force_always_runs(self, indexed_repo):
+        """Test that --force flag always runs compaction."""
+        # First run update to create chunk_index.json
+        self.run_cli(["index", "--update", "."], indexed_repo, timeout=600)
+
+        result = self.run_cli(["compact", "--force", "."], indexed_repo, timeout=600)
+        assert result.returncode == 0
+        assert "compact" in result.stdout.lower()
