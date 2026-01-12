@@ -252,17 +252,43 @@ pci config set compaction.schedule "weekly"
 - Swift (already recognized, needs AST extractor)
 - Haskell (already recognized, needs AST extractor)
 
-## Priority 7: CLI Enhancements & Tooling
+## ~~Priority 7: CLI Enhancements & Tooling~~ ✅ COMPLETED (v2.3-v2.4)
 
-### CLI Enhancements
+### Implementation Status
+
+✅ **v2.3.0 - Output Formatting & Config Management**
+- 4 output formats: text, json, table, csv
+- File export with `--output` flag
+- Enhanced config commands: show, path, edit
+
+✅ **v2.4.0 - Interactive Search & Watch Mode**
+- Interactive search mode with result navigation
+- Watch mode for auto-indexing with debounce
+- Live query and export capabilities
+
+### CLI Enhancements (Completed)
 
 ```bash
-# Interactive search
-pci search --interactive
+# Interactive search (v2.4)
+pci interactive
+pci interactive --regex
 
-# Watch mode for auto-indexing
+# Watch mode for auto-indexing (v2.4)
 pci index --watch
+pci index --watch --debounce 5.0
 
+# Output formats (v2.3)
+pci search "query" --format json
+pci search "query" --format csv --output results.csv
+
+# Config management (v2.3)
+pci config show
+pci config edit
+```
+
+### Future CLI Enhancements (Not Required)
+
+```bash
 # Export/import indices
 pci export archive.tar.gz
 pci import archive.tar.gz
