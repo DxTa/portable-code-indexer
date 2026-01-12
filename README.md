@@ -23,6 +23,10 @@ uv tool install sia-code
 # Or from source
 uv tool install git+https://github.com/DxTa/sia-code.git
 
+# Try without installing (ephemeral run)
+uvx sia-code --version
+uvx sia-code search "authentication logic"
+
 # Verify installation
 sia-code --version
 ```
