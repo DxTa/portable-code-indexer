@@ -6,7 +6,6 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -24,6 +23,7 @@ wheels/
 venv/
 ENV/
 env/
+.venv/
 
 # PCI specific
 .pci/
@@ -41,6 +41,8 @@ test_*.mv2
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+.nox/
 
 # OS
 .DS_Store
@@ -49,3 +51,9 @@ Thumbs.db
 # Temporary
 *.tmp
 *.log
+
+# Ruff
+.ruff_cache/
+
+# Build artifacts (keep dist/ for releases)
+# dist/ is NOT ignored - we want to track release wheels
