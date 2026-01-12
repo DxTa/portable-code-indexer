@@ -1,6 +1,6 @@
 # PCI - Portable Code Index
 
-**v2.2** - Production-grade local-first codebase intelligence with 12-language AST support.
+**v2.3** - Production-grade local-first codebase intelligence with 12-language AST support.
 
 ## Features
 
@@ -21,7 +21,7 @@
 
 ```bash
 # Download the wheel file, then:
-pip install portable_code_index-2.2.0-py3-none-any.whl
+pip install portable_code_index-2.3.0-py3-none-any.whl
 
 # Run via module
 python -m pci.cli --help
@@ -40,7 +40,7 @@ pip install -e .
 ```bash
 pip install build
 python -m build --wheel
-# Output: dist/portable_code_index-2.2.0-py3-none-any.whl
+# Output: dist/portable_code_index-2.3.0-py3-none-any.whl
 ```
 
 ## Quick Start
@@ -72,6 +72,20 @@ pci search --regex "def.*auth"
 
 # Multi-hop code research
 pci research "how does the API handle errors?"
+
+# Output Formats (v2.3)
+pci search "query" --format json          # JSON format
+pci search "query" --format table         # Rich table format
+pci search "query" --format text          # Default text format
+
+# Save Results to File (v2.3)
+pci search "query" --output results.json --format json
+pci search "query" --output results.txt
+
+# Configuration Management (v2.3)
+pci config show                           # Display configuration
+pci config path                           # Show config file path
+pci config edit                           # Open in $EDITOR
 ```
 
 For comprehensive usage examples, see [EXAMPLES.md](EXAMPLES.md).

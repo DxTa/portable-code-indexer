@@ -33,7 +33,9 @@ class Chunk:
         if self.start_line < 1:
             raise ValueError(f"start_line must be >= 1, got {self.start_line}")
         if self.end_line < self.start_line:
-            raise ValueError(f"end_line ({self.end_line}) must be >= start_line ({self.start_line})")
+            raise ValueError(
+                f"end_line ({self.end_line}) must be >= start_line ({self.start_line})"
+            )
         if not self.code:
             raise ValueError("code cannot be empty")
 
@@ -97,6 +99,15 @@ class SearchResult:
     score: float
     snippet: str | None = None
     highlights: list[tuple[int, int]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert search result to dictionary for JSON serialization."""
+        return {
+            "chunk": self.chunk.to_dict(),
+            "score": self.score,
+            "snippet": self.snippet,
+            "highlights": self.highlights,
+        }
 
 
 @dataclass

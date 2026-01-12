@@ -1,6 +1,6 @@
 [project]
 name = "portable-code-index"
-version = "2.2.0"
+version = "2.3.0"
 description = "Local-first codebase intelligence with semantic search, multi-hop research, and 12-language AST support"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -219,7 +219,17 @@ def index(path: str, update: bool, clean: bool, parallel: bool, workers: int | N
 @click.option("--regex", is_flag=True, help="Use regex/lexical search instead of semantic")
 @click.option("-k", "--limit", type=int, default=10, help="Number of results")
 @click.option("--no-filter", is_flag=True, help="Disable stale chunk filtering")
-def search(query: str, regex: bool, limit: int, no_filter: bool):
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json", "table"]),
+    default="text",
+    help="Output format (default: text)",
+)
+@click.option("-o", "--output", type=click.Path(), help="Save results to file instead of stdout")
+def search(
+    query: str, regex: bool, limit: int, no_filter: bool, output_format: str, output: str | None
+):
     """Search the codebase."""
     from .indexer.chunk_index import ChunkIndex
 
@@ -258,14 +268,74 @@ def search(query: str, regex: bool, limit: int, no_filter: bool):
         console.print("[yellow]No results found[/yellow]")
         return
 
-    # Display results
-    for i, result in enumerate(results, 1):
-        chunk = result.chunk
-        console.print(f"\n[bold cyan]{i}. {chunk.symbol}[/bold cyan]")
-        console.print(f"[dim]{chunk.file_path}:{chunk.start_line}-{chunk.end_line}[/dim]")
-        console.print(f"Score: {result.score:.3f}")
-        if result.snippet:
-            console.print(f"\n{result.snippet}\n")
+    # Format results based on output_format
+    if output_format == "json":
+        import json
+
+        output_data = {"query": query, "mode": mode, "results": [r.to_dict() for r in results]}
+        formatted_output = json.dumps(output_data, indent=2)
+    elif output_format == "table":
+        table = Table(title=f"Search Results: {query}")
+        table.add_column("File", style="cyan")
+        table.add_column("Line", style="dim")
+        table.add_column("Symbol", style="bold")
+        table.add_column("Score", justify="right")
+        table.add_column("Preview", style="dim")
+
+        for result in results:
+            chunk = result.chunk
+            preview = (result.snippet or chunk.code)[:80].replace("\n", " ")
+            table.add_row(
+                str(chunk.file_path),
+                f"{chunk.start_line}-{chunk.end_line}",
+                chunk.symbol,
+                f"{result.score:.3f}",
+                preview + "..." if len(preview) == 80 else preview,
+            )
+        formatted_output = table
+    else:  # text format (default)
+        formatted_output = None
+        for i, result in enumerate(results, 1):
+            chunk = result.chunk
+            console.print(f"\n[bold cyan]{i}. {chunk.symbol}[/bold cyan]")
+            console.print(f"[dim]{chunk.file_path}:{chunk.start_line}-{chunk.end_line}[/dim]")
+            console.print(f"Score: {result.score:.3f}")
+            if result.snippet:
+                console.print(f"\n{result.snippet}\n")
+
+    # Save to file or print to console
+    if output:
+        try:
+            output_path = Path(output)
+            if output_format == "json":
+                assert isinstance(formatted_output, str)
+                output_path.write_text(formatted_output)
+            elif output_format == "table":
+                from rich.console import Console as FileConsole
+
+                with open(output_path, "w") as f:
+                    file_console = FileConsole(file=f, width=120)
+                    file_console.print(formatted_output)
+            else:  # text format
+                # Re-format as plain text for file output
+                lines = []
+                for i, result in enumerate(results, 1):
+                    chunk = result.chunk
+                    lines.append(f"{i}. {chunk.symbol}")
+                    lines.append(f"   {chunk.file_path}:{chunk.start_line}-{chunk.end_line}")
+                    lines.append(f"   Score: {result.score:.3f}")
+                    if result.snippet:
+                        lines.append(f"\n{result.snippet}\n")
+                output_path.write_text("\n".join(lines))
+            console.print(f"[green]✓[/green] Results saved to {output}")
+        except Exception as e:
+            console.print(f"[red]Error saving to file: {e}[/red]")
+            sys.exit(1)
+    elif formatted_output is not None:
+        if output_format == "json":
+            console.print(formatted_output)
+        else:  # table
+            console.print(formatted_output)
 
 
 @main.command()
@@ -558,23 +628,73 @@ def compact(path: str, threshold: float, force: bool):
             sys.exit(1)
 
 
-@main.command()
-@click.option("--show", is_flag=True, help="Show current configuration")
-def config(show: bool):
-    """Manage configuration."""
+@main.group()
+def config():
+    """Manage PCI configuration."""
+    pass
+
+
+@config.command(name="show")
+def config_show():
+    """Display current configuration."""
     pci_dir = Path(".pci")
     if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized[/red]")
+        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
         sys.exit(1)
 
     config_path = pci_dir / "config.json"
     cfg = Config.load(config_path)
 
-    if show:
-        console.print(cfg.model_dump_json(indent=2))
-    else:
-        console.print(f"Config path: {config_path}")
-        console.print("Use --show to display configuration")
+    console.print("[bold cyan]PCI Configuration[/bold cyan]\n")
+    console.print(cfg.model_dump_json(indent=2))
+    console.print(f"\n[dim]Config file: {config_path}[/dim]")
+
+
+@config.command(name="path")
+def config_path():
+    """Show configuration file path."""
+    pci_dir = Path(".pci")
+    if not pci_dir.exists():
+        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+        sys.exit(1)
+
+    config_path = pci_dir / "config.json"
+    console.print(str(config_path.absolute()))
+
+
+@config.command(name="edit")
+def config_edit():
+    """Open configuration in $EDITOR."""
+    import os
+    import subprocess
+
+    pci_dir = Path(".pci")
+    if not pci_dir.exists():
+        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+        sys.exit(1)
+
+    config_path = pci_dir / "config.json"
+
+    editor = os.environ.get("EDITOR", "nano")
+    try:
+        subprocess.run([editor, str(config_path)], check=True)
+        console.print(f"[green]✓[/green] Configuration updated")
+
+        # Validate the edited config
+        try:
+            Config.load(config_path)
+            console.print("[green]✓[/green] Configuration is valid")
+        except Exception as e:
+            console.print(f"[red]Error: Invalid configuration: {e}[/red]")
+            console.print("[yellow]Please fix the configuration file manually[/yellow]")
+            sys.exit(1)
+    except subprocess.CalledProcessError:
+        console.print("[yellow]Editor exited with error[/yellow]")
+        sys.exit(1)
+    except FileNotFoundError:
+        console.print(f"[red]Error: Editor '{editor}' not found[/red]")
+        console.print("[dim]Set $EDITOR environment variable or install nano[/dim]")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
