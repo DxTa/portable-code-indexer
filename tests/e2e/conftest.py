@@ -50,7 +50,8 @@ def target_repo(tmp_path_factory, e2e_repo_url, e2e_sparse_paths):
     if repo_path_env:
         repo_path = Path(repo_path_env).resolve()
         if repo_path.exists():
-            return repo_path
+            yield repo_path
+            return
 
     # Clone repository
     if not e2e_repo_url:

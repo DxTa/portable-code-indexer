@@ -297,8 +297,6 @@ class MemvidBackend:
 
     def _convert_results(self, results: dict[str, Any]) -> list[SearchResult]:
         """Convert Memvid results to SearchResult objects."""
-        import json
-
         search_results = []
         for hit in results.get("hits", []):
             # Extract file path and line from URI (fast, no extra queries)
