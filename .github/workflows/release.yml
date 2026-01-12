@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build wheel
+        run: python -m build --wheel
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: PCI v${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## PCI - Portable Code Index v${{ steps.get_version.outputs.VERSION }}
+
+            ### Installation
+
+            ```bash
+            pip install portable_code_index-${{ steps.get_version.outputs.VERSION }}-py3-none-any.whl
+            ```
+
+            ### Quick Start
+
+            ```bash
+            pci init
+            pci index .
+            pci search "your query"
+            pci interactive
+            ```
+
+            See [README.md](https://github.com/DxTa/portable-code-indexer#readme) for full documentation.
+          files: |
+            dist/*.whl
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
