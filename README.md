@@ -76,6 +76,7 @@ pci research "how does the API handle errors?"
 # Output Formats (v2.3)
 pci search "query" --format json          # JSON format
 pci search "query" --format table         # Rich table format
+pci search "query" --format csv           # CSV format (Excel/spreadsheet)
 pci search "query" --format text          # Default text format
 
 # Save Results to File (v2.3)

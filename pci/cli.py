@@ -222,7 +222,7 @@ def index(path: str, update: bool, clean: bool, parallel: bool, workers: int | N
 @click.option(
     "--format",
     "output_format",
-    type=click.Choice(["text", "json", "table"]),
+    type=click.Choice(["text", "json", "table", "csv"]),
     default="text",
     help="Output format (default: text)",
 )
@@ -274,6 +274,29 @@ def search(
 
         output_data = {"query": query, "mode": mode, "results": [r.to_dict() for r in results]}
         formatted_output = json.dumps(output_data, indent=2)
+    elif output_format == "csv":
+        import csv
+        import io
+
+        csv_buffer = io.StringIO()
+        csv_writer = csv.writer(csv_buffer)
+        # Write header
+        csv_writer.writerow(["File", "Start Line", "End Line", "Symbol", "Score", "Preview"])
+        # Write rows
+        for result in results:
+            chunk = result.chunk
+            preview = (result.snippet or chunk.code)[:100].replace("\n", " ").replace("\r", "")
+            csv_writer.writerow(
+                [
+                    chunk.file_path,
+                    chunk.start_line,
+                    chunk.end_line,
+                    chunk.symbol,
+                    f"{result.score:.3f}",
+                    preview,
+                ]
+            )
+        formatted_output = csv_buffer.getvalue()
     elif output_format == "table":
         table = Table(title=f"Search Results: {query}")
         table.add_column("File", style="cyan")
@@ -307,7 +330,7 @@ def search(
     if output:
         try:
             output_path = Path(output)
-            if output_format == "json":
+            if output_format == "json" or output_format == "csv":
                 assert isinstance(formatted_output, str)
                 output_path.write_text(formatted_output)
             elif output_format == "table":
@@ -332,7 +355,7 @@ def search(
             console.print(f"[red]Error saving to file: {e}[/red]")
             sys.exit(1)
     elif formatted_output is not None:
-        if output_format == "json":
+        if output_format == "json" or output_format == "csv":
             console.print(formatted_output)
         else:  # table
             console.print(formatted_output)
