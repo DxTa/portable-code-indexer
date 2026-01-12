@@ -1,6 +1,6 @@
 [project]
 name = "portable-code-index"
-version = "2.3.0"
+version = "2.4.0"
 description = "Local-first codebase intelligence with semantic search, multi-hop research, and 12-language AST support"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -44,6 +44,8 @@ dependencies = [
     "rich>=13.0",
     "pathspec>=0.11",
     "pydantic>=2.0",
+    "prompt-toolkit>=3.0",
+    "watchdog>=3.0",
 ]
 
 [project.urls]

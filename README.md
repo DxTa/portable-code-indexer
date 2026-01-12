@@ -1,12 +1,15 @@
 # PCI - Portable Code Index
 
-**v2.3** - Production-grade local-first codebase intelligence with 12-language AST support.
+**v2.4** - Production-grade local-first codebase intelligence with interactive search and watch mode.
 
 ## Features
 
 - **cAST Algorithm** - Semantic code chunking via Abstract Syntax Tree
 - **Multi-Hop Code Research** - Automatically discovers interconnected code relationships
 - **12 Language Support** - Python, JS/TS, Go, Rust, Java, C/C++, C#, Ruby, PHP
+- **Interactive Search** (v2.4) - Live search with result navigation and export
+- **Watch Mode** (v2.4) - Auto-reindex on file changes with debouncing
+- **4 Output Formats** (v2.3) - Text, JSON, table, CSV for any workflow
 - **Chunk Metadata Sidecar** - Tracks valid/stale chunks, filters outdated code from results
 - **Index Compaction** - `pci compact` removes stale chunks, keeps index healthy
 - **Semantic Search** - Natural language queries (requires OpenAI API key)
@@ -21,7 +24,7 @@
 
 ```bash
 # Download the wheel file, then:
-pip install portable_code_index-2.3.0-py3-none-any.whl
+pip install portable_code_index-2.4.0-py3-none-any.whl
 
 # Run via module
 python -m pci.cli --help
@@ -40,7 +43,7 @@ pip install -e .
 ```bash
 pip install build
 python -m build --wheel
-# Output: dist/portable_code_index-2.3.0-py3-none-any.whl
+# Output: dist/portable_code_index-2.4.0-py3-none-any.whl
 ```
 
 ## Quick Start
@@ -87,6 +90,14 @@ pci search "query" --output results.txt
 pci config show                           # Display configuration
 pci config path                           # Show config file path
 pci config edit                           # Open in $EDITOR
+
+# Interactive Search (v2.4)
+pci interactive                           # Live search with result navigation
+pci interactive --regex                   # Interactive lexical search
+
+# Watch Mode (v2.4)
+pci index . --watch                       # Auto-reindex on file changes
+pci index . --watch --debounce 5.0        # Custom debounce time (seconds)
 ```
 
 For comprehensive usage examples, see [EXAMPLES.md](EXAMPLES.md).

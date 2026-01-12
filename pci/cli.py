@@ -99,7 +99,24 @@ def init(path: str):
 @click.option(
     "--workers", type=int, default=None, help="Number of worker processes (default: CPU count)"
 )
-def index(path: str, update: bool, clean: bool, parallel: bool, workers: int | None):
+@click.option(
+    "--watch", is_flag=True, help="Watch for file changes and auto-reindex (Ctrl+C to stop)"
+)
+@click.option(
+    "--debounce",
+    type=float,
+    default=2.0,
+    help="Seconds to wait before reindexing after changes (default: 2.0)",
+)
+def index(
+    path: str,
+    update: bool,
+    clean: bool,
+    parallel: bool,
+    workers: int | None,
+    watch: bool,
+    debounce: float,
+):
     """Index codebase for search."""
     pci_dir = Path(".pci")
     if not pci_dir.exists():
@@ -212,6 +229,102 @@ def index(path: str, update: bool, clean: bool, parallel: bool, workers: int | N
         except Exception as e:
             console.print(f"[red]Error during indexing: {e}[/red]")
             sys.exit(1)
+
+    # Watch mode
+    if watch:
+        try:
+            from watchdog.observers import Observer
+            from watchdog.events import FileSystemEventHandler
+            import time
+            from threading import Timer
+        except ImportError:
+            console.print("[red]Error: watchdog not installed[/red]")
+            console.print("[dim]Install with: pip install watchdog>=3.0[/dim]")
+            sys.exit(1)
+
+        class CodeFileHandler(FileSystemEventHandler):
+            def __init__(self, debounce_seconds):
+                self.debounce_seconds = debounce_seconds
+                self.timer = None
+                self.pending_changes = set()
+
+            def on_any_event(self, event):
+                if event.is_directory:
+                    return
+
+                # Only track relevant file changes
+                if any(
+                    event.src_path.endswith(ext)
+                    for ext in [
+                        ".py",
+                        ".js",
+                        ".ts",
+                        ".go",
+                        ".rs",
+                        ".java",
+                        ".c",
+                        ".cpp",
+                        ".cs",
+                        ".rb",
+                        ".php",
+                    ]
+                ):
+                    self.pending_changes.add(event.src_path)
+
+                    # Reset timer
+                    if self.timer:
+                        self.timer.cancel()
+
+                    self.timer = Timer(self.debounce_seconds, self.reindex)
+                    self.timer.start()
+
+            def reindex(self):
+                if not self.pending_changes:
+                    return
+
+                console.print(
+                    f"\n[yellow]File changes detected: {len(self.pending_changes)} files[/yellow]"
+                )
+                console.print("[dim]Re-indexing...[/dim]")
+
+                try:
+                    # Perform incremental reindex
+                    from .indexer.hash_cache import HashCache
+
+                    cache_path = pci_dir / "cache" / "file_hashes.json"
+                    cache = HashCache(cache_path)
+
+                    coordinator = IndexingCoordinator(backend=backend, config=config)
+                    stats = coordinator.index_directory_incremental(Path(path), cache)
+
+                    console.print(
+                        f"[green]✓[/green] Re-indexed {stats['files_indexed']} files, {stats['chunks_indexed']} chunks"
+                    )
+
+                except Exception as e:
+                    console.print(f"[red]Error during re-indexing: {e}[/red]")
+                finally:
+                    self.pending_changes.clear()
+
+        console.print(f"\n[bold cyan]Watch Mode Active[/bold cyan]")
+        console.print(f"[dim]Monitoring: {Path(path).absolute()}[/dim]")
+        console.print(f"[dim]Debounce: {debounce}s[/dim]")
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+        event_handler = CodeFileHandler(debounce)
+        observer = Observer()
+        observer.schedule(event_handler, path, recursive=True)
+        observer.start()
+
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Stopping watch mode...[/yellow]")
+            observer.stop()
+            observer.join()
+            console.print("[green]✓[/green] Watch mode stopped")
+            sys.exit(0)
 
 
 @main.command()
@@ -359,6 +472,152 @@ def search(
             console.print(formatted_output)
         else:  # table
             console.print(formatted_output)
+
+
+@main.command()
+@click.option("--regex", is_flag=True, help="Use regex/lexical search instead of semantic")
+@click.option("-k", "--limit", type=int, default=10, help="Number of results per query")
+def interactive(regex: bool, limit: int):
+    """Interactive search mode with live query and result navigation.
+
+    Features:
+    - Live search as you type
+    - Navigate results with arrow keys
+    - Preview code chunks
+    - Export results to file
+    - Press Ctrl+C or Ctrl+D to exit
+    """
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.keys import Keys
+    except ImportError:
+        console.print("[red]Error: prompt-toolkit not installed[/red]")
+        console.print("[dim]Install with: pip install prompt-toolkit>=3.0[/dim]")
+        sys.exit(1)
+
+    from .indexer.chunk_index import ChunkIndex
+
+    pci_dir = Path(".pci")
+    if not pci_dir.exists():
+        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+        sys.exit(1)
+
+    # Load config
+    config = Config.load(pci_dir / "config.json")
+
+    # Load chunk index for filtering
+    valid_chunks = None
+    chunk_index_path = pci_dir / "chunk_index.json"
+    if chunk_index_path.exists():
+        try:
+            chunk_index = ChunkIndex(chunk_index_path)
+            valid_chunks = chunk_index.get_valid_chunks()
+        except Exception:
+            pass
+
+    backend = create_backend(pci_dir / "index.mv2", config, valid_chunks=valid_chunks)
+    backend.open_index()
+
+    mode = "lexical" if regex else "semantic"
+    console.print(f"[bold cyan]PCI Interactive Search[/bold cyan] ({mode} mode)")
+    console.print("[dim]Type your query and press Enter. Ctrl+C or Ctrl+D to exit.[/dim]\n")
+
+    session = PromptSession()
+    current_results = []
+    current_query = ""
+
+    while True:
+        try:
+            # Get query from user
+            query = session.prompt("Search> ")
+            if not query.strip():
+                continue
+
+            current_query = query
+            console.print(f"[dim]Searching for: {query}[/dim]")
+
+            # Perform search
+            if regex:
+                results = backend.search_lexical(query, k=limit)
+            else:
+                results = backend.search_semantic(query, k=limit)
+
+            current_results = results
+
+            if not results:
+                console.print("[yellow]No results found[/yellow]\n")
+                continue
+
+            # Display results
+            console.print(f"\n[bold]Found {len(results)} results:[/bold]\n")
+            for i, result in enumerate(results, 1):
+                chunk = result.chunk
+                console.print(f"[cyan]{i}.[/cyan] {chunk.symbol}")
+                console.print(
+                    f"   [dim]{chunk.file_path}:{chunk.start_line}-{chunk.end_line}[/dim]"
+                )
+                console.print(f"   Score: {result.score:.3f}")
+
+                # Show preview
+                if result.snippet:
+                    preview = result.snippet[:150]
+                    console.print(
+                        f"   [dim]{preview}{'...' if len(result.snippet) > 150 else ''}[/dim]"
+                    )
+                console.print()
+
+            # Ask what to do next
+            action = session.prompt(
+                "\nAction: [v]iew result, [e]xport to file, [n]ew query, [q]uit > "
+            )
+
+            if action.lower() == "q":
+                console.print("[green]Goodbye![/green]")
+                break
+            elif action.lower() == "v":
+                try:
+                    idx = int(
+                        session.prompt("Enter result number to view (1-{}): ".format(len(results)))
+                    )
+                    if 1 <= idx <= len(results):
+                        result = results[idx - 1]
+                        chunk = result.chunk
+                        console.print(f"\n[bold cyan]{chunk.symbol}[/bold cyan]")
+                        console.print(
+                            f"[dim]{chunk.file_path}:{chunk.start_line}-{chunk.end_line}[/dim]\n"
+                        )
+                        console.print(chunk.code)
+                        console.print()
+                    else:
+                        console.print("[yellow]Invalid result number[/yellow]\n")
+                except (ValueError, EOFError):
+                    console.print("[yellow]Invalid input[/yellow]\n")
+            elif action.lower() == "e":
+                try:
+                    filename = session.prompt("Export filename (e.g., results.json): ")
+                    if filename:
+                        import json
+
+                        output_data = {
+                            "query": current_query,
+                            "mode": mode,
+                            "results": [r.to_dict() for r in current_results],
+                        }
+                        Path(filename).write_text(json.dumps(output_data, indent=2))
+                        console.print(f"[green]✓[/green] Results exported to {filename}\n")
+                except (EOFError, KeyboardInterrupt):
+                    console.print("[yellow]Export cancelled[/yellow]\n")
+            elif action.lower() == "n":
+                continue
+            else:
+                console.print("[yellow]Unknown action[/yellow]\n")
+
+        except (EOFError, KeyboardInterrupt):
+            console.print("\n[green]Goodbye![/green]")
+            break
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]\n")
 
 
 @main.command()
