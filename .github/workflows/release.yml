@@ -1,17 +1,110 @@
 name: Release to PyPI
 
 on:
+  # Trigger on published releases (created via GitHub UI or gh CLI)
   release:
     types: [published]
 
+  # Manual dispatch with version bump
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      dry_run:
+        description: 'Dry run (no actual release)'
+        required: false
+        type: boolean
+        default: false
+
 permissions:
-  contents: read
+  contents: write  # Needed for creating commits and tags
+  id-token: write  # Needed for PyPI trusted publishing
 
 jobs:
-  build:
+  # Job 1: Bump version (only for workflow_dispatch)
+  bump-version:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      tag_name: ${{ steps.bump.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install bump-my-version
+        run: pip install bump-my-version
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: bump
+        run: |
+          # Get current version
+          current=$(grep -Po 'current_version = "\K[^"]+' pyproject.toml)
+          echo "Current version: $current"
+
+          # Bump version
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "DRY RUN - would bump ${{ inputs.bump_type }}"
+            bump-my-version bump ${{ inputs.bump_type }} --dry-run --verbose
+            new_version=$(bump-my-version show new_version --increment ${{ inputs.bump_type }})
+          else
+            bump-my-version bump ${{ inputs.bump_type }} --verbose
+            new_version=$(grep -Po 'current_version = "\K[^"]+' pyproject.toml)
+            git push origin main --tags
+          fi
+
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          echo "tag_name=v$new_version" >> $GITHUB_OUTPUT
+
+  # Job 2: Create GitHub Release (only for workflow_dispatch, non-dry-run)
+  create-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.dry_run == false
+    needs: bump-version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.bump-version.outputs.tag_name }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ needs.bump-version.outputs.tag_name }} \
+            --title "${{ needs.bump-version.outputs.tag_name }} - Sia Code" \
+            --generate-notes
+
+  # Job 3: Build (runs for release event OR after create-release for workflow_dispatch)
+  build:
+    needs: [create-release]
+    # Run if: release event triggered OR workflow_dispatch with create-release succeeded
+    if: |
+      always() && 
+      (github.event_name == 'release' || 
+       (github.event_name == 'workflow_dispatch' && inputs.dry_run == false && needs.create-release.result == 'success'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -31,9 +124,12 @@ jobs:
           name: release-dists
           path: dist/
 
+  # Job 4: Publish to PyPI
   pypi-publish:
+    needs: [build]
+    if: |
+      always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
-    needs: build
     permissions:
       id-token: write  # Required for Trusted Publishing
     environment:
