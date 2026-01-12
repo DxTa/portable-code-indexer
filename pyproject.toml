@@ -49,10 +49,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/DxTa/portable-code-indexer"
-Documentation = "https://github.com/DxTa/portable-code-indexer#readme"
-Repository = "https://github.com/DxTa/portable-code-indexer"
-Issues = "https://github.com/DxTa/portable-code-indexer/issues"
+Homepage = "https://github.com/DxTa/sia-code"
+Documentation = "https://github.com/DxTa/sia-code#readme"
+Repository = "https://github.com/DxTa/sia-code"
+Issues = "https://github.com/DxTa/sia-code/issues"
 
 [project.optional-dependencies]
 openai = ["openai>=1.0"]

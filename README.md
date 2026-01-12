@@ -21,7 +21,7 @@ pip install sia-code
 uv tool install sia-code
 
 # Or from source
-uv tool install git+https://github.com/DxTa/portable-code-indexer.git
+uv tool install git+https://github.com/DxTa/sia-code.git
 
 # Verify installation
 sia-code --version
