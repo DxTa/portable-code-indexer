@@ -29,7 +29,7 @@ jobs:
       - name: Lint with ruff
         run: |
           pip install ruff
-          ruff check pci/
+          ruff check sia_code/
 
       - name: Run tests
         run: |
@@ -53,4 +53,4 @@ jobs:
       - name: Verify wheel
         run: |
           pip install dist/*.whl
-          python -m pci.cli --version
+          sia-code --version
