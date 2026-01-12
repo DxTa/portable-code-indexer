@@ -1,6 +1,6 @@
-# PCI - Portable Code Index
+# Sia Code
 
-**v2.4** - Local-first codebase search with semantic understanding and multi-hop code discovery.
+**v0.2** - Local-first codebase search with semantic understanding and multi-hop code discovery.
 
 ## Features
 
@@ -14,49 +14,52 @@
 ## Installation
 
 ```bash
-# Try without installing (recommended for first use)
-uvx --from git+https://github.com/DxTa/portable-code-indexer.git pci --help
+# From PyPI (recommended)
+pip install sia-code
 
-# Install permanently
+# Or with uv
+uv tool install sia-code
+
+# Or from source
 uv tool install git+https://github.com/DxTa/portable-code-indexer.git
 
 # Verify installation
-pci --version
+sia-code --version
 ```
 
 ## Quick Start
 
 ```bash
 # Initialize and index
-pci init
-pci index .
+sia-code init
+sia-code index .
 
 # Search
-pci search "authentication logic"           # Semantic search
-pci search --regex "def.*login"             # Regex search
+sia-code search "authentication logic"           # Semantic search
+sia-code search --regex "def.*login"             # Regex search
 
 # Multi-hop research (discover relationships)
-pci research "how does the API handle errors?"
+sia-code research "how does the API handle errors?"
 
 # Check index health
-pci status
+sia-code status
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `pci init` | Initialize index in current directory |
-| `pci index .` | Index codebase (first time) |
-| `pci index --update` | Re-index only changed files (10x faster) |
-| `pci index --clean` | Full rebuild from scratch |
-| `pci index --watch` | Auto-reindex on file changes |
-| `pci search "query"` | Semantic or regex search |
-| `pci research "question"` | Multi-hop code discovery with `--graph` |
-| `pci interactive` | Live search mode with result navigation |
-| `pci status` | Index health and staleness metrics |
-| `pci compact` | Remove stale chunks when index grows |
-| `pci config show` | View configuration |
+| `sia-code init` | Initialize index in current directory |
+| `sia-code index .` | Index codebase (first time) |
+| `sia-code index --update` | Re-index only changed files (10x faster) |
+| `sia-code index --clean` | Full rebuild from scratch |
+| `sia-code index --watch` | Auto-reindex on file changes |
+| `sia-code search "query"` | Semantic or regex search |
+| `sia-code research "question"` | Multi-hop code discovery with `--graph` |
+| `sia-code interactive` | Live search mode with result navigation |
+| `sia-code status` | Index health and staleness metrics |
+| `sia-code compact` | Remove stale chunks when index grows |
+| `sia-code config show` | View configuration |
 
 ## Configuration
 
@@ -64,26 +67,26 @@ pci status
 
 ```bash
 export OPENAI_API_KEY=sk-your-key-here
-pci init
-pci index .
+sia-code init
+sia-code index .
 ```
 
 **Without API key:** Searches automatically fallback to lexical/regex mode. No crashes.
 
-**Edit config** at `.pci/config.json` to:
+**Edit config** at `.sia-code/config.json` to:
 - Change embedding model (`openai-small`, `openai-large`, `bge-small`)
 - Exclude patterns (`node_modules/`, `__pycache__/`, etc.)
 - Adjust chunk sizes
 
-View config: `pci config show`
+View config: `sia-code config show`
 
 ## Output Formats
 
 ```bash
-pci search "query" --format json            # JSON output
-pci search "query" --format table           # Rich table
-pci search "query" --format csv             # CSV for Excel
-pci search "query" --output results.json    # Save to file
+sia-code search "query" --format json            # JSON output
+sia-code search "query" --format table           # Rich table
+sia-code search "query" --format csv             # CSV for Excel
+sia-code search "query" --output results.json    # Save to file
 ```
 
 ## Supported Languages
@@ -97,9 +100,9 @@ pci search "query" --output results.json    # Save to file
 | Issue | Solution |
 |-------|----------|
 | No API key warning | Normal - searches fallback to lexical mode |
-| Index growing large | Run `pci compact` to remove stale chunks |
-| Slow indexing | Use `pci index --update` for incremental |
-| Stale search results | Run `pci index --clean` to rebuild |
+| Index growing large | Run `sia-code compact` to remove stale chunks |
+| Slow indexing | Use `sia-code index --update` for incremental |
+| Stale search results | Run `sia-code index --clean` to rebuild |
 
 ## How It Works
 

@@ -1,12 +1,12 @@
 [project]
-name = "portable-code-index"
-version = "2.4.0"
+name = "sia-code"
+version = "0.2.1"
 description = "Local-first codebase intelligence with semantic search, multi-hop research, and 12-language AST support"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "PCI Contributors"}
+    {name = "Sia Code Contributors"}
 ]
 keywords = [
     "code-search", "semantic-search", "code-indexing", "codebase-intelligence",
@@ -68,10 +68,11 @@ dev = [
     "ruff>=0.1.0",
     "build>=1.0",
     "twine>=4.0",
+    "bump-my-version>=0.20",
 ]
 
 [project.scripts]
-pci = "pci.cli:main"
+sia-code = "sia_code.cli:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -79,7 +80,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["pci*"]
+include = ["sia_code*"]
 
 [tool.black]
 line-length = 100
@@ -94,3 +95,22 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+
+[tool.bumpversion]
+current_version = "0.2.1"
+parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
+serialize = ["{major}.{minor}.{patch}"]
+commit = true
+tag = true
+tag_name = "v{new_version}"
+message = "Bump version: {current_version} → {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "sia_code/__init__.py"
+search = '__version__ = "{current_version}"'
+replace = '__version__ = "{new_version}"'

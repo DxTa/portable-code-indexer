@@ -1,4 +1,4 @@
-"""CLI entry point for PCI."""
+"""CLI entry point for Sia Code."""
 
 import sys
 import logging
@@ -32,7 +32,7 @@ def create_backend(index_path: Path, config: Config, valid_chunks=None) -> Memvi
 
     Args:
         index_path: Path to index .mv2 file
-        config: PCI configuration
+        config: Sia Code configuration
         valid_chunks: Optional set of valid chunk IDs for filtering
 
     Returns:
@@ -51,9 +51,9 @@ def create_backend(index_path: Path, config: Config, valid_chunks=None) -> Memvi
 @click.version_option(version=__version__)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
 def main(verbose: bool):
-    """PCI - Portable Code Index
+    """Sia Code - Local-first codebase intelligence
 
-    Local-first codebase intelligence with semantic search.
+    Semantic search, multi-hop research, and 12-language AST support.
     """
     setup_logging(verbose)
 
@@ -61,28 +61,28 @@ def main(verbose: bool):
 @main.command()
 @click.option("--path", type=click.Path(), default=".", help="Directory to initialize")
 def init(path: str):
-    """Initialize PCI in the current directory."""
+    """Initialize Sia Code in the current directory."""
     project_dir = Path(path)
-    pci_dir = project_dir / ".pci"
+    sia_dir = project_dir / ".sia-code"
 
-    if pci_dir.exists():
-        console.print(f"[yellow]PCI already initialized at {pci_dir}[/yellow]")
+    if sia_dir.exists():
+        console.print(f"[yellow]Sia Code already initialized at {sia_dir}[/yellow]")
         return
 
-    # Create .pci directory
-    pci_dir.mkdir(parents=True, exist_ok=True)
-    (pci_dir / "cache").mkdir(exist_ok=True)
+    # Create .sia-code directory
+    sia_dir.mkdir(parents=True, exist_ok=True)
+    (sia_dir / "cache").mkdir(exist_ok=True)
 
     # Create default config
     config = Config()
-    config.save(pci_dir / "config.json")
+    config.save(sia_dir / "config.json")
 
     # Create empty index with embedding support
-    backend = create_backend(pci_dir / "index.mv2", config)
+    backend = create_backend(sia_dir / "index.mv2", config)
     backend.create_index()
 
-    console.print(f"[green]✓[/green] Initialized PCI at {pci_dir}")
-    console.print("[dim]Next: pci index [path][/dim]")
+    console.print(f"[green]✓[/green] Initialized Sia Code at {sia_dir}")
+    console.print("[dim]Next: sia-code index [path][/dim]")
 
 
 @main.command()
@@ -118,27 +118,27 @@ def index(
     debounce: float,
 ):
     """Index codebase for search."""
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
     # Load config
-    config = Config.load(pci_dir / "config.json")
+    config = Config.load(sia_dir / "config.json")
 
     # Handle --clean flag
-    backend = create_backend(pci_dir / "index.mv2", config)
+    backend = create_backend(sia_dir / "index.mv2", config)
     if clean:
         console.print("[yellow]Cleaning existing index and cache...[/yellow]")
 
         # Remove index file
-        index_path = pci_dir / "index.mv2"
+        index_path = sia_dir / "index.mv2"
         if index_path.exists():
             index_path.unlink()
             console.print(f"  [dim]✓ Deleted: {index_path}[/dim]")
 
         # Remove cache file
-        cache_path = pci_dir / "cache" / "file_hashes.json"
+        cache_path = sia_dir / "cache" / "file_hashes.json"
         if cache_path.exists():
             cache_path.unlink()
             console.print(f"  [dim]✓ Deleted: {cache_path}[/dim]")
@@ -179,8 +179,8 @@ def index(
                 from .indexer.hash_cache import HashCache
                 from .indexer.chunk_index import ChunkIndex
 
-                cache = HashCache(pci_dir / "cache" / "file_hashes.json")
-                chunk_index = ChunkIndex(pci_dir / "chunk_index.json")
+                cache = HashCache(sia_dir / "cache" / "file_hashes.json")
+                chunk_index = ChunkIndex(sia_dir / "chunk_index.json")
 
                 stats = coordinator.index_directory_incremental_v2(directory, cache, chunk_index)
 
@@ -291,7 +291,7 @@ def index(
                     # Perform incremental reindex
                     from .indexer.hash_cache import HashCache
 
-                    cache_path = pci_dir / "cache" / "file_hashes.json"
+                    cache_path = sia_dir / "cache" / "file_hashes.json"
                     cache = HashCache(cache_path)
 
                     coordinator = IndexingCoordinator(backend=backend, config=config)
@@ -346,18 +346,18 @@ def search(
     """Search the codebase."""
     from .indexer.chunk_index import ChunkIndex
 
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
     # Load config
-    config = Config.load(pci_dir / "config.json")
+    config = Config.load(sia_dir / "config.json")
 
     # Load chunk index for filtering (if available and not disabled)
     valid_chunks = None
     if not no_filter:
-        chunk_index_path = pci_dir / "chunk_index.json"
+        chunk_index_path = sia_dir / "chunk_index.json"
         if chunk_index_path.exists():
             try:
                 chunk_index = ChunkIndex(chunk_index_path)
@@ -365,7 +365,7 @@ def search(
             except Exception:
                 pass  # Silently fall back to no filtering
 
-    backend = create_backend(pci_dir / "index.mv2", config, valid_chunks=valid_chunks)
+    backend = create_backend(sia_dir / "index.mv2", config, valid_chunks=valid_chunks)
     backend.open_index()
 
     mode = "lexical" if regex else "semantic"
@@ -496,17 +496,17 @@ def interactive(regex: bool, limit: int):
 
     from .indexer.chunk_index import ChunkIndex
 
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
     # Load config
-    config = Config.load(pci_dir / "config.json")
+    config = Config.load(sia_dir / "config.json")
 
     # Load chunk index for filtering
     valid_chunks = None
-    chunk_index_path = pci_dir / "chunk_index.json"
+    chunk_index_path = sia_dir / "chunk_index.json"
     if chunk_index_path.exists():
         try:
             chunk_index = ChunkIndex(chunk_index_path)
@@ -514,11 +514,11 @@ def interactive(regex: bool, limit: int):
         except Exception:
             pass
 
-    backend = create_backend(pci_dir / "index.mv2", config, valid_chunks=valid_chunks)
+    backend = create_backend(sia_dir / "index.mv2", config, valid_chunks=valid_chunks)
     backend.open_index()
 
     mode = "lexical" if regex else "semantic"
-    console.print(f"[bold cyan]PCI Interactive Search[/bold cyan] ({mode} mode)")
+    console.print(f"[bold cyan]Sia Code Interactive Search[/bold cyan] ({mode} mode)")
     console.print("[dim]Type your query and press Enter. Ctrl+C or Ctrl+D to exit.[/dim]\n")
 
     session = PromptSession()
@@ -630,25 +630,25 @@ def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool)
     Automatically discovers code relationships and builds a complete picture.
 
     Examples:
-        pci research "How does authentication work?"
-        pci research "What calls the indexer?" --graph
-        pci research "How is configuration loaded?" --hops 3
+        sia-code research "How does authentication work?"
+        sia-code research "What calls the indexer?" --graph
+        sia-code research "How is configuration loaded?" --hops 3
     """
     from .indexer.chunk_index import ChunkIndex
     from .search.multi_hop import MultiHopSearchStrategy
 
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
     # Load config
-    config = Config.load(pci_dir / "config.json")
+    config = Config.load(sia_dir / "config.json")
 
     # Load chunk index for filtering (if available and not disabled)
     valid_chunks = None
     if not no_filter:
-        chunk_index_path = pci_dir / "chunk_index.json"
+        chunk_index_path = sia_dir / "chunk_index.json"
         if chunk_index_path.exists():
             try:
                 chunk_index = ChunkIndex(chunk_index_path)
@@ -656,7 +656,7 @@ def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool)
             except Exception:
                 pass  # Silently fall back to no filtering
 
-    backend = create_backend(pci_dir / "index.mv2", config, valid_chunks=valid_chunks)
+    backend = create_backend(sia_dir / "index.mv2", config, valid_chunks=valid_chunks)
     backend.open_index()
 
     strategy = MultiHopSearchStrategy(backend, max_hops=hops)
@@ -723,18 +723,18 @@ def status():
     import json
     from .indexer.chunk_index import ChunkIndex
 
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized[/red]")
         sys.exit(1)
 
     # Load config
-    config = Config.load(pci_dir / "config.json")
+    config = Config.load(sia_dir / "config.json")
 
-    backend = create_backend(pci_dir / "index.mv2", config)
+    backend = create_backend(sia_dir / "index.mv2", config)
     stats = backend.get_stats()
 
-    table = Table(title="PCI Index Status")
+    table = Table(title="Sia Code Index Status")
     table.add_column("Property", style="cyan")
     table.add_column("Value", style="green")
 
@@ -742,7 +742,7 @@ def status():
     table.add_row("Exists", "Yes" if stats["exists"] else "No")
 
     # Cache statistics
-    cache_path = pci_dir / "cache" / "file_hashes.json"
+    cache_path = sia_dir / "cache" / "file_hashes.json"
     if cache_path.exists():
         try:
             cache_data = json.loads(cache_path.read_text())
@@ -754,7 +754,7 @@ def status():
             pass
 
     # Index age and size
-    index_path = pci_dir / "index.mv2"
+    index_path = sia_dir / "index.mv2"
     if index_path.exists():
         try:
             stat = index_path.stat()
@@ -767,7 +767,7 @@ def status():
             pass
 
     # Chunk index staleness (v2.0)
-    chunk_index_path = pci_dir / "chunk_index.json"
+    chunk_index_path = sia_dir / "chunk_index.json"
     if chunk_index_path.exists():
         try:
             chunk_index = ChunkIndex(chunk_index_path)
@@ -804,7 +804,7 @@ def status():
             if age.days > 30:
                 console.print("\n[yellow]⚠️  Warning: Index is over 30 days old.[/yellow]")
                 console.print(
-                    "[dim]Consider running 'pci index --clean' to rebuild fresh index.[/dim]"
+                    "[dim]Consider running 'sia-code index --clean' to rebuild fresh index.[/dim]"
                 )
         except OSError:
             pass
@@ -822,19 +822,19 @@ def compact(path: str, threshold: float, force: bool):
     quality and reduces index size.
 
     Example:
-        pci compact              # Compact if >20% stale
-        pci compact --threshold 0.1  # Compact if >10% stale
-        pci compact --force      # Force compaction now
+        sia-code compact              # Compact if >20% stale
+        sia-code compact --threshold 0.1  # Compact if >10% stale
+        sia-code compact --force      # Force compaction now
     """
     from .indexer.chunk_index import ChunkIndex
 
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
     # Check if chunk index exists
-    chunk_index_path = pci_dir / "chunk_index.json"
+    chunk_index_path = sia_dir / "chunk_index.json"
     if not chunk_index_path.exists():
         console.print("[yellow]Chunk index not found. Compaction requires chunk tracking.[/yellow]")
         console.print(
@@ -854,8 +854,8 @@ def compact(path: str, threshold: float, force: bool):
     console.print(f"  Status: {summary.status}\n")
 
     # Load config and backend
-    config = Config.load(pci_dir / "config.json")
-    backend = create_backend(pci_dir / "index.mv2", config)
+    config = Config.load(sia_dir / "config.json")
+    backend = create_backend(sia_dir / "index.mv2", config)
     backend.open_index()
 
     coordinator = IndexingCoordinator(config, backend)
@@ -910,22 +910,22 @@ def compact(path: str, threshold: float, force: bool):
 
 @main.group()
 def config():
-    """Manage PCI configuration."""
+    """Manage Sia Code configuration."""
     pass
 
 
 @config.command(name="show")
 def config_show():
     """Display current configuration."""
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
-    config_path = pci_dir / "config.json"
+    config_path = sia_dir / "config.json"
     cfg = Config.load(config_path)
 
-    console.print("[bold cyan]PCI Configuration[/bold cyan]\n")
+    console.print("[bold cyan]Sia Code Configuration[/bold cyan]\n")
     console.print(cfg.model_dump_json(indent=2))
     console.print(f"\n[dim]Config file: {config_path}[/dim]")
 
@@ -933,12 +933,12 @@ def config_show():
 @config.command(name="path")
 def config_path():
     """Show configuration file path."""
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
-    config_path = pci_dir / "config.json"
+    config_path = sia_dir / "config.json"
     console.print(str(config_path.absolute()))
 
 
@@ -948,12 +948,12 @@ def config_edit():
     import os
     import subprocess
 
-    pci_dir = Path(".pci")
-    if not pci_dir.exists():
-        console.print("[red]Error: PCI not initialized. Run 'pci init' first.[/red]")
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
 
-    config_path = pci_dir / "config.json"
+    config_path = sia_dir / "config.json"
 
     editor = os.environ.get("EDITOR", "nano")
     try:

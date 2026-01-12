@@ -25,8 +25,8 @@ ENV/
 env/
 .venv/
 
-# PCI specific
-.pci/
+# Sia Code specific
+.sia-code/
 *.mv2
 test_*.mv2
 
