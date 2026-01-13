@@ -381,14 +381,24 @@ def index(
                 console.print("[dim]Re-indexing...[/dim]")
 
                 try:
-                    # Perform incremental reindex
+                    # Perform incremental reindex using v2
                     from .indexer.hash_cache import HashCache
+                    from .indexer.chunk_index import ChunkIndex
 
                     cache_path = sia_dir / "cache" / "file_hashes.json"
                     cache = HashCache(cache_path)
 
+                    chunk_index_path = sia_dir / "chunk_index.json"
+                    chunk_index = ChunkIndex(chunk_index_path)
+                    chunk_index.load()
+
                     coordinator = IndexingCoordinator(backend=backend, config=config)
-                    stats = coordinator.index_directory_incremental(Path(path), cache)
+                    stats = coordinator.index_directory_incremental_v2(
+                        Path(path), cache, chunk_index, progress_callback=None
+                    )
+
+                    # Save updated chunk index
+                    chunk_index.save()
 
                     console.print(
                         f"[green]✓[/green] Re-indexed {stats['files_indexed']} files, {stats['chunks_indexed']} chunks"

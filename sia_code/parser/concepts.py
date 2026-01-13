@@ -134,6 +134,157 @@ class ConceptExtractor:
         traverse(root)
         return concepts
 
+    def _extract_javascript_concepts(
+        self, root: Node, source_code: bytes
+    ) -> list[UniversalConcept]:
+        """Extract JavaScript/TypeScript-specific concepts."""
+        concepts = []
+
+        def traverse(node: Node, parent_class: str | None = None):
+            # Function declarations: function foo() {}
+            if node.type == "function_declaration":
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    symbol = source_code[name_node.start_byte : name_node.end_byte].decode("utf-8")
+                    concepts.append(
+                        UniversalConcept(
+                            concept_type=ConceptType.DEFINITION,
+                            chunk_type=ChunkType.FUNCTION,
+                            symbol=symbol,
+                            start_line=LineNumber(node.start_point[0] + 1),
+                            end_line=LineNumber(node.end_point[0] + 1),
+                            start_byte=ByteOffset(node.start_byte),
+                            end_byte=ByteOffset(node.end_byte),
+                            code=source_code[node.start_byte : node.end_byte].decode("utf-8"),
+                            parent_header=parent_class,
+                        )
+                    )
+
+            # Arrow functions and function expressions: const foo = () => {}
+            elif node.type in ("arrow_function", "function_expression", "function"):
+                # Try to find the parent variable declarator to get the name
+                parent = node.parent
+                symbol = "anonymous"
+                if parent and parent.type == "variable_declarator":
+                    name_node = parent.child_by_field_name("name")
+                    if name_node:
+                        symbol = source_code[name_node.start_byte : name_node.end_byte].decode(
+                            "utf-8"
+                        )
+
+                concepts.append(
+                    UniversalConcept(
+                        concept_type=ConceptType.DEFINITION,
+                        chunk_type=ChunkType.FUNCTION,
+                        symbol=symbol,
+                        start_line=LineNumber(node.start_point[0] + 1),
+                        end_line=LineNumber(node.end_point[0] + 1),
+                        start_byte=ByteOffset(node.start_byte),
+                        end_byte=ByteOffset(node.end_byte),
+                        code=source_code[node.start_byte : node.end_byte].decode("utf-8"),
+                        parent_header=parent_class,
+                    )
+                )
+
+            # Class declarations
+            elif node.type == "class_declaration":
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    symbol = source_code[name_node.start_byte : name_node.end_byte].decode("utf-8")
+                    concepts.append(
+                        UniversalConcept(
+                            concept_type=ConceptType.DEFINITION,
+                            chunk_type=ChunkType.CLASS,
+                            symbol=symbol,
+                            start_line=LineNumber(node.start_point[0] + 1),
+                            end_line=LineNumber(node.end_point[0] + 1),
+                            start_byte=ByteOffset(node.start_byte),
+                            end_byte=ByteOffset(node.end_byte),
+                            code=source_code[node.start_byte : node.end_byte].decode("utf-8"),
+                        )
+                    )
+                    # Traverse children with class context
+                    for child in node.children:
+                        traverse(child, parent_class=symbol)
+                    return  # Don't traverse again
+
+            # Method definitions (inside classes)
+            elif node.type in ("method_definition", "public_field_definition"):
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    symbol = source_code[name_node.start_byte : name_node.end_byte].decode("utf-8")
+                    concepts.append(
+                        UniversalConcept(
+                            concept_type=ConceptType.DEFINITION,
+                            chunk_type=ChunkType.METHOD if parent_class else ChunkType.FUNCTION,
+                            symbol=symbol,
+                            start_line=LineNumber(node.start_point[0] + 1),
+                            end_line=LineNumber(node.end_point[0] + 1),
+                            start_byte=ByteOffset(node.start_byte),
+                            end_byte=ByteOffset(node.end_byte),
+                            code=source_code[node.start_byte : node.end_byte].decode("utf-8"),
+                            parent_header=parent_class,
+                        )
+                    )
+
+            # TypeScript-specific: interface declarations
+            elif node.type == "interface_declaration":
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    symbol = source_code[name_node.start_byte : name_node.end_byte].decode("utf-8")
+                    concepts.append(
+                        UniversalConcept(
+                            concept_type=ConceptType.DEFINITION,
+                            chunk_type=ChunkType.CLASS,  # Treat interfaces like classes
+                            symbol=symbol,
+                            start_line=LineNumber(node.start_point[0] + 1),
+                            end_line=LineNumber(node.end_point[0] + 1),
+                            start_byte=ByteOffset(node.start_byte),
+                            end_byte=ByteOffset(node.end_byte),
+                            code=source_code[node.start_byte : node.end_byte].decode("utf-8"),
+                        )
+                    )
+
+            # TypeScript-specific: type alias declarations
+            elif node.type == "type_alias_declaration":
+                name_node = node.child_by_field_name("name")
+                if name_node:
+                    symbol = source_code[name_node.start_byte : name_node.end_byte].decode("utf-8")
+                    concepts.append(
+                        UniversalConcept(
+                            concept_type=ConceptType.DEFINITION,
+                            chunk_type=ChunkType.CLASS,  # Treat type aliases like classes
+                            symbol=symbol,
+                            start_line=LineNumber(node.start_point[0] + 1),
+                            end_line=LineNumber(node.end_point[0] + 1),
+                            start_byte=ByteOffset(node.start_byte),
+                            end_byte=ByteOffset(node.end_byte),
+                            code=source_code[node.start_byte : node.end_byte].decode("utf-8"),
+                        )
+                    )
+
+            # Comments
+            elif node.type == "comment":
+                concepts.append(
+                    UniversalConcept(
+                        concept_type=ConceptType.COMMENT,
+                        chunk_type=ChunkType.COMMENT,
+                        symbol="comment",
+                        start_line=LineNumber(node.start_point[0] + 1),
+                        end_line=LineNumber(node.end_point[0] + 1),
+                        start_byte=ByteOffset(node.start_byte),
+                        end_byte=ByteOffset(node.end_byte),
+                        code=source_code[node.start_byte : node.end_byte].decode("utf-8"),
+                    )
+                )
+
+            # Traverse children
+            for child in node.children:
+                traverse(child, parent_class)
+
+        traverse(root)
+        return concepts
+
     def _extract_generic_concepts(self, root: Node, source_code: bytes) -> list[UniversalConcept]:
         """Extract concepts from C-like languages using common node types."""
         concepts = []
