@@ -1,12 +1,11 @@
 """Indexing coordinator - orchestrates parse → chunk → store."""
 
 from pathlib import Path
-import hashlib
 import logging
 import time
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from typing import cast, Callable
+from typing import Callable
 
 import pathspec
 
