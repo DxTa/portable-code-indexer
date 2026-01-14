@@ -100,8 +100,11 @@ class TreeSitterEngine:
             with open(file_path, "rb") as f:
                 source_code = f.read()
             return self.parse_code(source_code, language)
-        except Exception:
-            # Silent fail for individual files
+        except Exception as e:
+            # Log parse failures for debugging
+            import logging
+
+            logging.getLogger(__name__).debug(f"Parse failed for {file_path}: {e}")
             return None
 
     def parse_code(self, source_code: bytes | str, language: PciLanguage):
@@ -116,7 +119,11 @@ class TreeSitterEngine:
             parser = self._parsers[language]
             tree = parser.parse(source_code)
             return tree.root_node
-        except Exception:
+        except Exception as e:
+            # Log parse failures for debugging
+            import logging
+
+            logging.getLogger(__name__).debug(f"Parse code failed for {language}: {e}")
             return None
 
     def is_supported(self, language: PciLanguage) -> bool:

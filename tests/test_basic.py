@@ -98,7 +98,9 @@ class TestMemvidBackend:
         backend.store_chunks_batch(sample_chunks)
 
         results = backend.search_lexical("search", k=5)
-        assert len(results) > 0
+
+        # Respect the k parameter
+        assert 1 <= len(results) <= 5
 
         # Check result structure
         for result in results:
@@ -106,22 +108,41 @@ class TestMemvidBackend:
             assert result.chunk.symbol is not None
             assert result.score > 0  # BM25 scores are positive
 
+        # Verify results are sorted by score (descending)
+        scores = [r.score for r in results]
+        assert scores == sorted(scores, reverse=True), (
+            "Results should be sorted by score (descending)"
+        )
+
     def test_lexical_search_multiple_terms(self, backend, sample_chunks):
         """Test lexical search with multiple terms."""
         backend.store_chunks_batch(sample_chunks)
 
         results = backend.search_lexical("semantic code chunk", k=5)
-        assert len(results) > 0
+
+        # Respect the k parameter
+        assert 1 <= len(results) <= 5
+
+        # Verify results are sorted by relevance
+        scores = [r.score for r in results]
+        assert scores == sorted(scores, reverse=True)
 
     def test_lexical_search_language(self, backend, sample_chunks):
         """Test lexical search finds language-related content."""
         backend.store_chunks_batch(sample_chunks)
 
         results = backend.search_lexical("languages", k=5)
-        assert len(results) > 0
+
+        # Respect the k parameter
+        assert 1 <= len(results) <= 5
+
         # Should find the Language class
         symbols = [r.chunk.symbol for r in results]
         assert "Language" in symbols
+
+        # Verify scores are descending
+        scores = [r.score for r in results]
+        assert scores == sorted(scores, reverse=True)
 
 
 class TestChunkModel:

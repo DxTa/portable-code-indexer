@@ -107,7 +107,13 @@ class MultiHopSearchStrategy:
                 # Search for this entity
                 try:
                     entity_results = self.backend.search_lexical(entity.name, k=3)
-                except Exception:
+                except Exception as e:
+                    # Log search failures for debugging
+                    import logging
+
+                    logging.getLogger(__name__).debug(
+                        f"Entity search failed for {entity.name}: {e}"
+                    )
                     continue
 
                 # Process results

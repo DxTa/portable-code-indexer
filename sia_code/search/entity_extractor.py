@@ -52,8 +52,13 @@ class EntityExtractor:
             elif chunk.language in [Language.JAVASCRIPT, Language.TYPESCRIPT, Language.TSX]:
                 entities.extend(self._extract_js_entities(root, chunk))
 
-        except Exception:
-            # Silent fail for extraction errors
+        except Exception as e:
+            # Log extraction failures for debugging
+            import logging
+
+            logging.getLogger(__name__).debug(
+                f"Entity extraction failed for chunk {chunk.symbol}: {e}"
+            )
             pass
 
         return entities
