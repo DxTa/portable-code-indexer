@@ -68,6 +68,36 @@ class Chunk:
             "metadata": self.metadata,
         }
 
+    def with_metadata(self, extra: dict[str, Any]) -> "Chunk":
+        """Return a new Chunk with additional metadata merged.
+
+        Since Chunk is frozen, this creates a new instance.
+
+        Args:
+            extra: Additional metadata to merge with existing metadata
+
+        Returns:
+            New Chunk instance with merged metadata
+        """
+        merged = {**self.metadata, **extra}
+        return Chunk(
+            symbol=self.symbol,
+            start_line=self.start_line,
+            end_line=self.end_line,
+            code=self.code,
+            chunk_type=self.chunk_type,
+            language=self.language,
+            file_path=self.file_path,
+            file_id=self.file_id,
+            id=self.id,
+            parent_header=self.parent_header,
+            start_byte=self.start_byte,
+            end_byte=self.end_byte,
+            metadata=merged,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
+
 
 @dataclass(frozen=True)
 class File:

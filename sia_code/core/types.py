@@ -129,3 +129,11 @@ class ConceptType(str, Enum):
     COMMENT = "comment"  # Comments, docstrings
     STRUCTURE = "structure"  # File structure, imports
     CALL = "call"  # Function/method calls
+
+
+class IndexTier(str, Enum):
+    """Index tier for chunk source classification."""
+
+    PROJECT = "project"  # User's codebase (primary)
+    DEPENDENCY = "dependency"  # Installed packages (stubs/exports)
+    STDLIB = "stdlib"  # Standard library (future)
