@@ -10,7 +10,6 @@ from typing import Iterator
 import subprocess
 import json
 import sys
-import os
 import logging
 
 logger = logging.getLogger(__name__)

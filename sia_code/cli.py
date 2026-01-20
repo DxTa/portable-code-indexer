@@ -129,7 +129,7 @@ def init(path: str, dry_run: bool):
     profile = analyzer.analyze()
 
     # Display analysis results
-    console.print(f"\n[bold]Project Analysis[/bold]")
+    console.print("\n[bold]Project Analysis[/bold]")
     console.print(f"  Languages: {', '.join(profile.primary_languages) or 'none detected'}")
     console.print(f"  Multi-language: {'yes' if profile.is_multi_language else 'no'}")
     console.print(f"  Has dependencies: {'yes' if profile.has_dependencies else 'no'}")
@@ -137,11 +137,11 @@ def init(path: str, dry_run: bool):
     console.print(f"  Recommended strategy: {profile.recommended_strategy}")
 
     if dry_run:
-        console.print(f"\n[dim]Language detections:[/dim]")
+        console.print("\n[dim]Language detections:[/dim]")
         for detection in profile.detections[:5]:
             console.print(f"  {detection.language}: {detection.confidence:.0%} confidence")
             console.print(f"    Evidence: {', '.join(detection.evidence[:3])}")
-        console.print(f"\n[yellow]Dry run complete. No index created.[/yellow]")
+        console.print("\n[yellow]Dry run complete. No index created.[/yellow]")
         return
 
     # Create .sia-code directory
