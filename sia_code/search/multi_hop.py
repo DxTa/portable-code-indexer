@@ -50,6 +50,35 @@ class MultiHopSearchStrategy:
         self.extractor = EntityExtractor()
         self._preprocessor = QueryPreprocessor()  # Cache instance to avoid recreation
 
+    def _initial_search(self, question: str, k: int) -> list:
+        """Perform initial search with adaptive mode selection.
+
+        Args:
+            question: Natural language question
+            k: Number of results to return
+
+        Returns:
+            List of search results
+        """
+        if self.backend.embedding_enabled:
+            try:
+                logger.info(f"Using semantic search for query: {question[:100]}")
+                return self.backend.search_semantic(question, k=k)
+            except Exception as e:
+                logger.warning(
+                    f"Semantic search failed ({e.__class__.__name__}: {str(e)}), "
+                    "falling back to lexical search"
+                )
+                # Fall through to lexical search
+
+        # Lexical search path
+        logger.info(f"Using lexical search for query: {question[:100]}")
+        processed_query = self._preprocessor.preprocess(question)
+        search_query = processed_query or question
+        if not processed_query:
+            logger.debug(f"Preprocessing returned empty for query: {question[:100]}")
+        return self.backend.search_lexical(search_query, k=k)
+
     def research(
         self, question: str, max_results_per_hop: int = 5, max_total_chunks: int = 50
     ) -> ResearchResult:
@@ -75,33 +104,7 @@ class MultiHopSearchStrategy:
         all_chunks: list[Chunk] = []
 
         # Hop 0: Initial search - adaptive based on embedding availability
-        # If embeddings are enabled, use semantic search (handles natural language natively)
-        # Otherwise, preprocess the question and use lexical search
-        if self.backend.embedding_enabled:
-            try:
-                logger.info(f"Using semantic search for query: {question[:100]}")
-                initial_results = self.backend.search_semantic(question, k=max_results_per_hop)
-            except Exception as e:
-                # Fallback to lexical search if semantic fails
-                logger.warning(
-                    f"Semantic search failed ({e.__class__.__name__}: {str(e)}), "
-                    f"falling back to lexical search"
-                )
-                # Preprocess and use lexical as fallback
-                processed_query = self._preprocessor.preprocess(question)
-                search_query = processed_query if processed_query else question
-                if not processed_query:
-                    logger.debug(f"Preprocessing returned empty for query: {question[:100]}")
-                initial_results = self.backend.search_lexical(search_query, k=max_results_per_hop)
-        else:
-            # Preprocess question for better lexical search
-            logger.info(f"Using lexical search for query: {question[:100]}")
-            processed_query = self._preprocessor.preprocess(question)
-            # Use processed query if not empty, otherwise fall back to original
-            search_query = processed_query if processed_query else question
-            if not processed_query:
-                logger.debug(f"Preprocessing returned empty for query: {question[:100]}")
-            initial_results = self.backend.search_lexical(search_query, k=max_results_per_hop)
+        initial_results = self._initial_search(question, max_results_per_hop)
 
         if not initial_results:
             return ResearchResult(question=question, chunks=[], relationships=[], hops_executed=0)

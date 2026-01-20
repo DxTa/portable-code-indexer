@@ -74,6 +74,29 @@ class IndexingCoordinator:
             )
         )
 
+    def _create_index_stats(self, total_files: int = 0) -> dict:
+        """Create initial stats dictionary for indexing operations.
+
+        Args:
+            total_files: Total number of files discovered
+
+        Returns:
+            Dictionary with initial stats structure
+        """
+        return {
+            "total_files": total_files,
+            "indexed_files": 0,
+            "skipped": {
+                "unsupported_language": [],
+                "empty_content": [],
+                "parse_errors": [],
+                "too_large": [],
+            },
+            "total_chunks": 0,
+            "errors": [],
+            "metrics": None,
+        }
+
     def _index_file_with_retry(
         self, file_path: Path, language: Language, max_retries: int = 3
     ) -> tuple[list, str | None]:
@@ -136,19 +159,7 @@ class IndexingCoordinator:
         if progress_callback:
             progress_callback("indexing", 0, len(files), f"Found {len(files)} files")
 
-        stats = {
-            "total_files": len(files),
-            "indexed_files": 0,
-            "skipped": {
-                "unsupported_language": [],
-                "empty_content": [],
-                "parse_errors": [],
-                "too_large": [],
-            },
-            "total_chunks": 0,
-            "errors": [],
-            "metrics": None,  # Will be filled at end
-        }
+        stats = self._create_index_stats(len(files))
 
         # Process each file
         for idx, file_path in enumerate(files, 1):
@@ -235,19 +246,7 @@ class IndexingCoordinator:
         if progress_callback:
             progress_callback("indexing", 0, len(files), f"Found {len(files)} files")
 
-        stats = {
-            "total_files": len(files),
-            "indexed_files": 0,
-            "skipped": {
-                "unsupported_language": [],
-                "empty_content": [],
-                "parse_errors": [],
-                "too_large": [],
-            },
-            "total_chunks": 0,
-            "errors": [],
-            "metrics": None,
-        }
+        stats = self._create_index_stats(len(files))
 
         # Default to CPU count
         if max_workers is None:
@@ -382,21 +381,10 @@ class IndexingCoordinator:
                 "checking", 0, len(files), f"Checking {len(files)} files for changes..."
             )
 
-        stats = {
-            "total_files": len(files),
-            "changed_files": 0,
-            "skipped_files": 0,
-            "indexed_files": 0,
-            "skipped": {
-                "unsupported_language": [],
-                "empty_content": [],
-                "parse_errors": [],
-                "too_large": [],
-            },
-            "total_chunks": 0,
-            "errors": [],
-            "metrics": None,  # Will be filled at end
-        }
+        stats = self._create_index_stats(len(files))
+        # Add incremental-specific fields
+        stats["changed_files"] = 0
+        stats["skipped_files"] = 0
 
         for idx, file_path in enumerate(files, 1):
             # Update progress for checking phase

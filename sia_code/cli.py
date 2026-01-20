@@ -99,6 +99,23 @@ def create_backend(index_path: Path, config: Config, valid_chunks=None) -> Memvi
     )
 
 
+def require_initialized() -> tuple[Path, Config]:
+    """Ensure Sia Code is initialized, return sia_dir and config.
+
+    Returns:
+        Tuple of (sia_dir, config)
+
+    Raises:
+        SystemExit: If .sia-code directory doesn't exist
+    """
+    sia_dir = Path(".sia-code")
+    if not sia_dir.exists():
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
+        sys.exit(1)
+    config = Config.load(sia_dir / "config.json")
+    return sia_dir, config
+
+
 @click.group()
 @click.version_option(version=__version__)
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose logging")
@@ -203,13 +220,7 @@ def index(
     # Get verbose flag from parent context
     verbose = ctx.parent.params.get("verbose", False) if ctx.parent else False
 
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
-
-    # Load config
-    config = Config.load(sia_dir / "config.json")
+    sia_dir, config = require_initialized()
 
     # Handle --clean flag
     backend = create_backend(sia_dir / "index.mv2", config)
@@ -486,13 +497,7 @@ def search(
     """Search the codebase."""
     from .indexer.chunk_index import ChunkIndex
 
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
-
-    # Load config
-    config = Config.load(sia_dir / "config.json")
+    sia_dir, config = require_initialized()
 
     # Load chunk index for filtering (if available and not disabled)
     valid_chunks = None
@@ -671,13 +676,7 @@ def interactive(regex: bool, limit: int):
 
     from .indexer.chunk_index import ChunkIndex
 
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
-
-    # Load config
-    config = Config.load(sia_dir / "config.json")
+    sia_dir, config = require_initialized()
 
     # Load chunk index for filtering
     valid_chunks = None
@@ -812,13 +811,7 @@ def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool)
     from .indexer.chunk_index import ChunkIndex
     from .search.multi_hop import MultiHopSearchStrategy
 
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
-
-    # Load config
-    config = Config.load(sia_dir / "config.json")
+    sia_dir, config = require_initialized()
 
     # Load chunk index for filtering (if available and not disabled)
     valid_chunks = None
@@ -898,13 +891,7 @@ def status():
     import json
     from .indexer.chunk_index import ChunkIndex
 
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized[/red]")
-        sys.exit(1)
-
-    # Load config
-    config = Config.load(sia_dir / "config.json")
+    sia_dir, config = require_initialized()
 
     backend = create_backend(sia_dir / "index.mv2", config)
     stats = backend.get_stats()
@@ -1003,10 +990,7 @@ def compact(path: str, threshold: float, force: bool):
     """
     from .indexer.chunk_index import ChunkIndex
 
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
+    sia_dir, config = require_initialized()
 
     # Check if chunk index exists
     chunk_index_path = sia_dir / "chunk_index.json"
@@ -1028,8 +1012,7 @@ def compact(path: str, threshold: float, force: bool):
     console.print(f"  Staleness: {summary.staleness_ratio:.1%}")
     console.print(f"  Status: {summary.status}\n")
 
-    # Load config and backend
-    config = Config.load(sia_dir / "config.json")
+    # Load backend
     backend = create_backend(sia_dir / "index.mv2", config)
     backend.open_index()
 
@@ -1092,13 +1075,8 @@ def config():
 @config.command(name="show")
 def config_show():
     """Display current configuration."""
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
-
+    sia_dir, cfg = require_initialized()
     config_path = sia_dir / "config.json"
-    cfg = Config.load(config_path)
 
     console.print("[bold cyan]Sia Code Configuration[/bold cyan]\n")
     console.print(cfg.model_dump_json(indent=2))
@@ -1108,11 +1086,7 @@ def config_show():
 @config.command(name="path")
 def config_path():
     """Show configuration file path."""
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
-
+    sia_dir, _ = require_initialized()
     config_path = sia_dir / "config.json"
     console.print(str(config_path.absolute()))
 
@@ -1123,11 +1097,7 @@ def config_edit():
     import os
     import subprocess
 
-    sia_dir = Path(".sia-code")
-    if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
-        sys.exit(1)
-
+    sia_dir, _ = require_initialized()
     config_path = sia_dir / "config.json"
 
     editor = os.environ.get("EDITOR", "nano")
