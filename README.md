@@ -1,11 +1,14 @@
 # Sia Code
 
-**v0.2** - Local-first codebase search with semantic understanding and multi-hop code discovery.
+Local-first codebase search with semantic understanding and multi-hop code discovery.
 
 ## Features
 
 - **Semantic Search** - Natural language queries with OpenAI embeddings (auto-fallback to lexical)
 - **Multi-Hop Research** - Automatically discover code relationships and call graphs
+- **Natural Language Questions** - Ask "How does X work?" and get relevant code
+- **Project Auto-Detection** - Automatic language detection and indexing strategy
+- **Tiered Search** - Filter by project code, dependencies, or both
 - **12 Languages** - Python, JS/TS, Go, Rust, Java, C/C++, C#, Ruby, PHP (full AST support)
 - **Interactive Mode** - Live search with result navigation and export
 - **Watch Mode** - Auto-reindex on file changes
@@ -54,12 +57,18 @@ sia-code status
 | Command | Description |
 |---------|-------------|
 | `sia-code init` | Initialize index in current directory |
+| `sia-code init --dry-run` | Preview project analysis without indexing |
 | `sia-code index .` | Index codebase (first time) |
 | `sia-code index --update` | Re-index only changed files (10x faster) |
 | `sia-code index --clean` | Full rebuild from scratch |
 | `sia-code index --watch` | Auto-reindex on file changes |
+| `sia-code index --parallel` | Use parallel processing (100+ files) |
 | `sia-code search "query"` | Semantic or regex search |
-| `sia-code research "question"` | Multi-hop code discovery with `--graph` |
+| `sia-code search --no-deps` | Exclude dependency code from results |
+| `sia-code search --deps-only` | Show only dependency code |
+| `sia-code research "question"` | Multi-hop code discovery |
+| `sia-code research --hops N` | Set max relationship depth (default: 2) |
+| `sia-code research --graph` | Show call graph visualization |
 | `sia-code interactive` | Live search mode with result navigation |
 | `sia-code status` | Index health and staleness metrics |
 | `sia-code compact` | Remove stale chunks when index grows |
