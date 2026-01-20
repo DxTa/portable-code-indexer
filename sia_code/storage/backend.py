@@ -162,7 +162,7 @@ class MemvidBackend:
                     "label": chunk.chunk_type.value,
                     "metadata": metadata,
                     "text": chunk.code,
-                    "uri": f"pci://{chunk.file_path}#{chunk.start_line}",
+                    "uri": f"pci://{chunk.file_path}#{chunk.start_line}-{chunk.end_line}",
                 }
             )
 
@@ -387,7 +387,7 @@ class MemvidBackend:
         """Extract file path and line numbers from pci:// URI.
 
         Args:
-            uri: URI in format pci:///absolute/path/to/file.py#line
+            uri: URI in format pci:///absolute/path/to/file.py#start_line-end_line
 
         Returns:
             Tuple of (file_path, start_line, end_line)
@@ -398,12 +398,20 @@ class MemvidBackend:
         # Remove 'pci://' prefix
         path_part = uri[6:]
 
-        # Extract file path and line number
+        # Extract file path and line numbers
         if "#" in path_part:
             file_path, line_str = path_part.rsplit("#", 1)
             try:
-                line = int(line_str)
-                return file_path, line, line
+                # Check if line_str contains a range (start-end)
+                if "-" in line_str:
+                    start_str, end_str = line_str.split("-", 1)
+                    start_line = int(start_str)
+                    end_line = int(end_str)
+                    return file_path, start_line, end_line
+                else:
+                    # Single line number (legacy format)
+                    line = int(line_str)
+                    return file_path, line, line
             except ValueError:
                 return file_path, 1, 1
 
@@ -412,13 +420,44 @@ class MemvidBackend:
     def _convert_results(self, results: dict[str, Any]) -> list[SearchResult]:
         """Convert Memvid results to SearchResult objects."""
         search_results = []
+
+        # Cache file contents to avoid repeated reads
+        file_cache: dict[str, list[str]] = {}
+
         for hit in results.get("hits", []):
             # Extract file path and line from URI (fast, no extra queries)
             uri = hit.get("uri", "")
             file_path, start_line, end_line = self._parse_uri(uri)
 
             # Get code text
-            code = hit.get("text", "") or hit.get("snippet", "") or "# No content"
+            # Semantic search doesn't populate snippets in Memvid, so we reconstruct from file
+            code = hit.get("snippet", "")  # Try snippet first (works for lexical search)
+
+            if not code:
+                # Reconstruct from source file using line numbers (with caching)
+                try:
+                    if file_path and file_path != "unknown":
+                        from pathlib import Path
+
+                        # Check cache first
+                        if file_path not in file_cache:
+                            source_path = Path(file_path)
+                            if source_path.exists():
+                                with open(source_path, "r", encoding="utf-8", errors="ignore") as f:
+                                    file_cache[file_path] = f.readlines()
+
+                        # Get from cache
+                        if file_path in file_cache:
+                            lines = file_cache[file_path]
+                            # Line numbers are 1-based, array is 0-based
+                            if start_line > 0 and end_line > 0:
+                                code_lines = lines[start_line - 1 : end_line]
+                                code = "".join(code_lines).rstrip()
+                except Exception:
+                    pass
+
+            if not code:
+                code = "# No content"
 
             # Parse chunk type from title (since labels are always empty)
             # The title contains the actual chunk type in many cases

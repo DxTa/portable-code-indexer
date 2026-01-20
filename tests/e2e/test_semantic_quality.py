@@ -310,15 +310,5 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def pytest_addoption(parser):
-    """Add command line option for semantic quality tests."""
-    parser.addoption(
-        "--run-semantic-quality",
-        action="store_true",
-        default=False,
-        help="run semantic quality tests (requires OPENAI_API_KEY)",
-    )
-
-
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--run-semantic-quality"])

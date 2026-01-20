@@ -523,7 +523,10 @@ def search(
     mode = "lexical" if regex else "semantic"
     filter_status = "" if no_filter or not valid_chunks else " [filtered]"
     deps_status = " [no-deps]" if no_deps else " [deps-only]" if deps_only else ""
-    console.print(f"[dim]Searching ({mode}{filter_status}{deps_status})...[/dim]")
+
+    # Suppress progress messages for structured output formats
+    if output_format not in ("json", "csv"):
+        console.print(f"[dim]Searching ({mode}{filter_status}{deps_status})...[/dim]")
 
     if regex:
         results = backend.search_lexical(
@@ -539,7 +542,17 @@ def search(
         results = [r for r in results if r.chunk.metadata.get("tier") == "dependency"]
 
     if not results:
-        console.print("[yellow]No results found[/yellow]")
+        # Handle empty results based on output format
+        if output_format == "json":
+            import json
+
+            empty_output = {"query": query, "mode": mode, "results": []}
+            print(json.dumps(empty_output, indent=2))
+        elif output_format == "csv":
+            # CSV header only for empty results
+            print("File,Start Line,End Line,Symbol,Score,Preview")
+        else:
+            console.print("[yellow]No results found[/yellow]")
         return
 
     # Format results based on output_format
@@ -630,7 +643,8 @@ def search(
             sys.exit(1)
     elif formatted_output is not None:
         if output_format == "json" or output_format == "csv":
-            console.print(formatted_output)
+            # Use print() for JSON/CSV to avoid rich console formatting
+            print(formatted_output)
         else:  # table
             console.print(formatted_output)
 
