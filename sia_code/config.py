@@ -52,6 +52,41 @@ class SearchConfig(BaseModel):
     default_limit: int = 10
     multi_hop_enabled: bool = True
     max_hops: int = 2
+    # Configurable tier boosting for search results
+    tier_boost: dict[str, float] = Field(
+        default_factory=lambda: {
+            "project": 1.0,
+            "dependency": 0.7,
+            "stdlib": 0.5,
+        }
+    )
+    include_dependencies: bool = True  # Default: deps always included in search
+
+
+class DependencyConfig(BaseModel):
+    """Dependency indexing configuration."""
+
+    enabled: bool = True
+    index_stubs: bool = True  # Index .pyi, .d.ts
+    # Languages to index deps for (Phase 1: python, typescript only)
+    languages: list[str] = Field(default_factory=lambda: ["python", "typescript", "javascript"])
+
+
+class DocumentationConfig(BaseModel):
+    """Documentation linking configuration."""
+
+    enabled: bool = True
+    link_to_code: bool = True  # Create doc-to-code links
+    patterns: list[str] = Field(default_factory=lambda: ["*.md", "*.txt", "*.rst"])
+
+
+class AdaptiveConfig(BaseModel):
+    """Auto-detected project configuration."""
+
+    auto_detect: bool = True
+    detected_languages: list[str] = Field(default_factory=list)
+    is_multi_language: bool = False
+    search_strategy: str = "weighted"  # "weighted" or "non_dominated"
 
 
 class Config(BaseModel):
@@ -61,6 +96,10 @@ class Config(BaseModel):
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    # New configuration sections
+    dependencies: DependencyConfig = Field(default_factory=DependencyConfig)
+    documentation: DocumentationConfig = Field(default_factory=DocumentationConfig)
+    adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
 
     @classmethod
     def load(cls, path: Path) -> "Config":

@@ -128,6 +128,12 @@ def indexed_repo(initialized_repo):
     This fixture indexes the repository once per test session,
     making all subsequent tests faster.
     """
+    # Check if index already has content (skip re-indexing if it does)
+    index_path = initialized_repo / ".sia-code" / "index.mv2"
+    if index_path.exists() and index_path.stat().st_size > 100000:  # >100KB means indexed
+        # Index exists and has content, skip re-indexing
+        return initialized_repo
+
     result = subprocess.run(
         ["sia-code", "index", "."],
         cwd=initialized_repo,
@@ -143,3 +149,13 @@ def indexed_repo(initialized_repo):
     assert "complete" in result.stdout.lower() or "indexed" in result.stdout.lower()
 
     return initialized_repo
+
+
+def pytest_addoption(parser):
+    """Add command line options for E2E tests."""
+    parser.addoption(
+        "--run-semantic-quality",
+        action="store_true",
+        default=False,
+        help="run semantic quality tests (requires OPENAI_API_KEY)",
+    )

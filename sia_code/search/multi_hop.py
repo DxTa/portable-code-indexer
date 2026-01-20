@@ -1,5 +1,6 @@
 """Multi-hop code research for discovering code relationships."""
 
+import logging
 from dataclasses import dataclass, field
 from typing import Set
 
@@ -7,6 +8,9 @@ from ..core.models import Chunk
 from ..core.types import ChunkId
 from ..storage.backend import MemvidBackend
 from .entity_extractor import EntityExtractor, Entity
+from .query_preprocessor import QueryPreprocessor
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +48,7 @@ class MultiHopSearchStrategy:
         self.backend = backend
         self.max_hops = max_hops
         self.extractor = EntityExtractor()
+        self._preprocessor = QueryPreprocessor()  # Cache instance to avoid recreation
 
     def research(
         self, question: str, max_results_per_hop: int = 5, max_total_chunks: int = 50
@@ -69,8 +74,34 @@ class MultiHopSearchStrategy:
         relationships: list[CodeRelationship] = []
         all_chunks: list[Chunk] = []
 
-        # Hop 0: Initial search (lexical - no API needed)
-        initial_results = self.backend.search_lexical(question, k=max_results_per_hop)
+        # Hop 0: Initial search - adaptive based on embedding availability
+        # If embeddings are enabled, use semantic search (handles natural language natively)
+        # Otherwise, preprocess the question and use lexical search
+        if self.backend.embedding_enabled:
+            try:
+                logger.info(f"Using semantic search for query: {question[:100]}")
+                initial_results = self.backend.search_semantic(question, k=max_results_per_hop)
+            except Exception as e:
+                # Fallback to lexical search if semantic fails
+                logger.warning(
+                    f"Semantic search failed ({e.__class__.__name__}: {str(e)}), "
+                    f"falling back to lexical search"
+                )
+                # Preprocess and use lexical as fallback
+                processed_query = self._preprocessor.preprocess(question)
+                search_query = processed_query if processed_query else question
+                if not processed_query:
+                    logger.debug(f"Preprocessing returned empty for query: {question[:100]}")
+                initial_results = self.backend.search_lexical(search_query, k=max_results_per_hop)
+        else:
+            # Preprocess question for better lexical search
+            logger.info(f"Using lexical search for query: {question[:100]}")
+            processed_query = self._preprocessor.preprocess(question)
+            # Use processed query if not empty, otherwise fall back to original
+            search_query = processed_query if processed_query else question
+            if not processed_query:
+                logger.debug(f"Preprocessing returned empty for query: {question[:100]}")
+            initial_results = self.backend.search_lexical(search_query, k=max_results_per_hop)
 
         if not initial_results:
             return ResearchResult(question=question, chunks=[], relationships=[], hops_executed=0)

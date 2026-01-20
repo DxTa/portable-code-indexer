@@ -112,28 +112,56 @@ def main(verbose: bool):
 
 @main.command()
 @click.option("--path", type=click.Path(), default=".", help="Directory to initialize")
-def init(path: str):
+@click.option("--dry-run", is_flag=True, help="Preview project analysis without creating index")
+def init(path: str, dry_run: bool):
     """Initialize Sia Code in the current directory."""
+    from .indexer.project_analyzer import ProjectAnalyzer
+
     project_dir = Path(path)
     sia_dir = project_dir / ".sia-code"
 
-    if sia_dir.exists():
+    if sia_dir.exists() and not dry_run:
         console.print(f"[yellow]Sia Code already initialized at {sia_dir}[/yellow]")
+        return
+
+    # Run project analysis
+    analyzer = ProjectAnalyzer(project_dir)
+    profile = analyzer.analyze()
+
+    # Display analysis results
+    console.print("\n[bold]Project Analysis[/bold]")
+    console.print(f"  Languages: {', '.join(profile.primary_languages) or 'none detected'}")
+    console.print(f"  Multi-language: {'yes' if profile.is_multi_language else 'no'}")
+    console.print(f"  Has dependencies: {'yes' if profile.has_dependencies else 'no'}")
+    console.print(f"  Has documentation: {'yes' if profile.has_documentation else 'no'}")
+    console.print(f"  Recommended strategy: {profile.recommended_strategy}")
+
+    if dry_run:
+        console.print("\n[dim]Language detections:[/dim]")
+        for detection in profile.detections[:5]:
+            console.print(f"  {detection.language}: {detection.confidence:.0%} confidence")
+            console.print(f"    Evidence: {', '.join(detection.evidence[:3])}")
+        console.print("\n[yellow]Dry run complete. No index created.[/yellow]")
         return
 
     # Create .sia-code directory
     sia_dir.mkdir(parents=True, exist_ok=True)
     (sia_dir / "cache").mkdir(exist_ok=True)
 
-    # Create default config
+    # Create config with auto-detected settings
     config = Config()
+
+    # Apply auto-detected tier boost settings
+    config.search.tier_boost = profile.tier_boost
+    config.search.include_dependencies = profile.has_dependencies
+
     config.save(sia_dir / "config.json")
 
     # Create empty index with embedding support
     backend = create_backend(sia_dir / "index.mv2", config)
     backend.create_index()
 
-    console.print(f"[green]✓[/green] Initialized Sia Code at {sia_dir}")
+    console.print(f"\n[green]✓[/green] Initialized Sia Code at {sia_dir}")
     console.print("[dim]Next: sia-code index [path][/dim]")
 
 
@@ -435,6 +463,8 @@ def index(
 @click.option("--regex", is_flag=True, help="Use regex/lexical search instead of semantic")
 @click.option("-k", "--limit", type=int, default=10, help="Number of results")
 @click.option("--no-filter", is_flag=True, help="Disable stale chunk filtering")
+@click.option("--no-deps", is_flag=True, help="Exclude dependency code from results")
+@click.option("--deps-only", is_flag=True, help="Show only dependency code (no project code)")
 @click.option(
     "--format",
     "output_format",
@@ -444,7 +474,14 @@ def index(
 )
 @click.option("-o", "--output", type=click.Path(), help="Save results to file instead of stdout")
 def search(
-    query: str, regex: bool, limit: int, no_filter: bool, output_format: str, output: str | None
+    query: str,
+    regex: bool,
+    limit: int,
+    no_filter: bool,
+    no_deps: bool,
+    deps_only: bool,
+    output_format: str,
+    output: str | None,
 ):
     """Search the codebase."""
     from .indexer.chunk_index import ChunkIndex
@@ -468,20 +505,54 @@ def search(
             except Exception:
                 pass  # Silently fall back to no filtering
 
+    # Handle mutually exclusive dependency flags
+    if no_deps and deps_only:
+        console.print("[red]Error: --no-deps and --deps-only are mutually exclusive[/red]")
+        sys.exit(1)
+
     backend = create_backend(sia_dir / "index.mv2", config, valid_chunks=valid_chunks)
     backend.open_index()
 
+    # Determine dependency filtering
+    # Default: include deps (from config or True)
+    # --no-deps: exclude deps
+    # --deps-only: show only deps (include_deps=True, then filter results)
+    include_deps = not no_deps  # Exclude deps if --no-deps is set
+    tier_boost = config.search.tier_boost if hasattr(config.search, "tier_boost") else None
+
     mode = "lexical" if regex else "semantic"
     filter_status = "" if no_filter or not valid_chunks else " [filtered]"
-    console.print(f"[dim]Searching ({mode}{filter_status})...[/dim]")
+    deps_status = " [no-deps]" if no_deps else " [deps-only]" if deps_only else ""
+
+    # Suppress progress messages for structured output formats
+    if output_format not in ("json", "csv"):
+        console.print(f"[dim]Searching ({mode}{filter_status}{deps_status})...[/dim]")
 
     if regex:
-        results = backend.search_lexical(query, k=limit)
+        results = backend.search_lexical(
+            query, k=limit, include_deps=include_deps, tier_boost=tier_boost
+        )
     else:
-        results = backend.search_semantic(query, k=limit)
+        results = backend.search_semantic(
+            query, k=limit, include_deps=include_deps, tier_boost=tier_boost
+        )
+
+    # Filter for --deps-only after search
+    if deps_only and results:
+        results = [r for r in results if r.chunk.metadata.get("tier") == "dependency"]
 
     if not results:
-        console.print("[yellow]No results found[/yellow]")
+        # Handle empty results based on output format
+        if output_format == "json":
+            import json
+
+            empty_output = {"query": query, "mode": mode, "results": []}
+            print(json.dumps(empty_output, indent=2))
+        elif output_format == "csv":
+            # CSV header only for empty results
+            print("File,Start Line,End Line,Symbol,Score,Preview")
+        else:
+            console.print("[yellow]No results found[/yellow]")
         return
 
     # Format results based on output_format
@@ -572,7 +643,8 @@ def search(
             sys.exit(1)
     elif formatted_output is not None:
         if output_format == "json" or output_format == "csv":
-            console.print(formatted_output)
+            # Use print() for JSON/CSV to avoid rich console formatting
+            print(formatted_output)
         else:  # table
             console.print(formatted_output)
 

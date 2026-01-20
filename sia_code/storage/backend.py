@@ -110,22 +110,30 @@ class MemvidBackend:
         Returns:
             Chunk ID from Memvid
         """
+        # Build metadata including chunk's custom metadata
+        metadata = {
+            "file_path": str(chunk.file_path),
+            "start_line": chunk.start_line,
+            "end_line": chunk.end_line,
+            "language": chunk.language.value,
+            "parent_header": chunk.parent_header,
+            **chunk.metadata,  # Include tier and other custom metadata
+        }
+
         result = self.mem.put(
             title=chunk.symbol,
             label=chunk.chunk_type.value,
-            metadata={
-                "file_path": str(chunk.file_path),
-                "start_line": chunk.start_line,
-                "end_line": chunk.end_line,
-                "language": chunk.language.value,
-                "parent_header": chunk.parent_header,
-            },
+            metadata=metadata,
             text=chunk.code,
             uri=f"pci://{chunk.file_path}#{chunk.start_line}",
             enable_embedding=self.embedding_enabled,
             embedding_model=self.embedding_model,
         )
-        return ChunkId(str(result.get("frame_id", "")))
+        # Memvid returns frame_id directly or in a dict
+        if isinstance(result, dict):
+            return ChunkId(str(result.get("frame_id", "")))
+        else:
+            return ChunkId(str(result))
 
     def store_chunks_batch(self, chunks: list[Chunk]) -> list[ChunkId]:
         """Store multiple chunks in a batch.
@@ -138,19 +146,23 @@ class MemvidBackend:
         """
         docs = []
         for chunk in chunks:
+            # Build metadata including chunk's custom metadata
+            metadata = {
+                "file_path": str(chunk.file_path),
+                "start_line": chunk.start_line,
+                "end_line": chunk.end_line,
+                "language": chunk.language.value,
+                "parent_header": chunk.parent_header,
+                **chunk.metadata,  # Include tier and other custom metadata
+            }
+
             docs.append(
                 {
                     "title": chunk.symbol,
                     "label": chunk.chunk_type.value,
-                    "metadata": {
-                        "file_path": str(chunk.file_path),
-                        "start_line": chunk.start_line,
-                        "end_line": chunk.end_line,
-                        "language": chunk.language.value,
-                        "parent_header": chunk.parent_header,
-                    },
+                    "metadata": metadata,
                     "text": chunk.code,
-                    "uri": f"pci://{chunk.file_path}#{chunk.start_line}",
+                    "uri": f"pci://{chunk.file_path}#{chunk.start_line}-{chunk.end_line}",
                 }
             )
 
@@ -171,22 +183,36 @@ class MemvidBackend:
             )
         return [ChunkId(str(fid)) for fid in frame_ids]
 
-    def search_semantic(self, query: str, k: int = 10) -> list[SearchResult]:
-        """Perform semantic search.
+    def search_semantic(
+        self,
+        query: str,
+        k: int = 10,
+        include_deps: bool = True,
+        tier_boost: dict[str, float] | None = None,
+    ) -> list[SearchResult]:
+        """Perform semantic search with tier-aware ranking.
 
         Args:
             query: Search query
             k: Number of results
+            include_deps: Whether to include dependency tier (default True)
+            tier_boost: Score multipliers per tier (default: project=1.0, dep=0.7, stdlib=0.5)
 
         Returns:
-            List of search results (filtered if valid_chunks is set)
+            List of search results (filtered and boosted by tier)
         """
-        # Fetch more results if filtering is enabled
-        fetch_k = k * 2 if self.valid_chunks else k
+        # Default boost values
+        if tier_boost is None:
+            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
+
+        # Fetch more to account for filtering/reranking
+        fetch_k = k * 3 if include_deps else k * 2
+        if self.valid_chunks:
+            fetch_k = max(fetch_k, k * 2)
 
         try:
             results = self.mem.find(query, mode="sem", k=fetch_k, snippet_chars=200)
-            return self._convert_and_filter_results(results, k)
+            converted = self._convert_and_filter_results(results, fetch_k)
         except Exception as e:
             # Fall back to lexical search if semantic fails (e.g., embeddings disabled)
             if "VecIndexDisabledError" in str(type(e)) or "not enabled" in str(e):
@@ -198,41 +224,110 @@ class MemvidBackend:
                     "Falling back to lexical search. "
                     "Set OPENAI_API_KEY or use --regex for lexical search."
                 )
-                return self.search_lexical(query, k)
+                return self.search_lexical(query, k, include_deps, tier_boost)
             # Re-raise other exceptions
             raise
 
-    def search_lexical(self, query: str, k: int = 10) -> list[SearchResult]:
-        """Perform lexical (BM25) search.
+        # Apply tier boosting with migration handling
+        for result in converted:
+            # MIGRATION: Handle chunks without tier metadata (from old indexes)
+            tier = result.chunk.metadata.get("tier")
+            if tier is None:
+                # Assume project tier for legacy chunks
+                tier = "project"
+            boost = tier_boost.get(tier, 1.0)
+            result.score *= boost
+
+        # Filter by tier if needed
+        if not include_deps:
+            converted = [
+                r for r in converted if r.chunk.metadata.get("tier", "project") == "project"
+            ]
+
+        # Re-sort by boosted score
+        converted.sort(key=lambda r: r.score, reverse=True)
+
+        return converted[:k]
+
+    def search_lexical(
+        self,
+        query: str,
+        k: int = 10,
+        include_deps: bool = True,
+        tier_boost: dict[str, float] | None = None,
+    ) -> list[SearchResult]:
+        """Perform lexical (BM25) search with tier-aware ranking.
 
         Args:
             query: Search query
             k: Number of results
+            include_deps: Whether to include dependency tier
+            tier_boost: Score multipliers per tier
 
         Returns:
-            List of search results (filtered if valid_chunks is set)
+            List of search results (filtered and boosted by tier)
         """
-        # Fetch more results if filtering is enabled
-        fetch_k = k * 2 if self.valid_chunks else k
+        # Default boost values
+        if tier_boost is None:
+            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
+
+        # Fetch more to account for filtering/reranking
+        fetch_k = k * 3 if include_deps else k * 2
+        if self.valid_chunks:
+            fetch_k = max(fetch_k, k * 2)
+
         results = self.mem.find(query, mode="lex", k=fetch_k, snippet_chars=200)
-        return self._convert_and_filter_results(results, k)
+        converted = self._convert_and_filter_results(results, fetch_k)
 
-    def search_hybrid(self, query: str, k: int = 10) -> list[SearchResult]:
-        """Perform hybrid search (semantic + lexical).
+        # Apply tier boosting with migration handling
+        for result in converted:
+            tier = result.chunk.metadata.get("tier")
+            if tier is None:
+                tier = "project"
+            boost = tier_boost.get(tier, 1.0)
+            result.score *= boost
+
+        # Filter by tier if needed
+        if not include_deps:
+            converted = [
+                r for r in converted if r.chunk.metadata.get("tier", "project") == "project"
+            ]
+
+        # Re-sort by boosted score
+        converted.sort(key=lambda r: r.score, reverse=True)
+
+        return converted[:k]
+
+    def search_hybrid(
+        self,
+        query: str,
+        k: int = 10,
+        include_deps: bool = True,
+        tier_boost: dict[str, float] | None = None,
+    ) -> list[SearchResult]:
+        """Perform hybrid search (semantic + lexical) with tier-aware ranking.
 
         Args:
             query: Search query
             k: Number of results
+            include_deps: Whether to include dependency tier
+            tier_boost: Score multipliers per tier
 
         Returns:
-            List of search results (filtered if valid_chunks is set)
+            List of search results (filtered and boosted by tier)
         """
-        # Fetch more results if filtering is enabled
-        fetch_k = k * 2 if self.valid_chunks else k
+        # Default boost values
+        if tier_boost is None:
+            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
+
+        # Fetch more to account for filtering/reranking
+        fetch_k = k * 3 if include_deps else k * 2
+        if self.valid_chunks:
+            fetch_k = max(fetch_k, k * 2)
 
         try:
             results = self.mem.find(query, mode="auto", k=fetch_k, snippet_chars=200)
-            return self._convert_and_filter_results(results, k)
+            converted = self._convert_and_filter_results(results, fetch_k)
         except Exception as e:
             # Fall back to lexical search if hybrid fails (e.g., embeddings disabled)
             if "VecIndexDisabledError" in str(type(e)) or "not enabled" in str(e):
@@ -242,9 +337,28 @@ class MemvidBackend:
                 logger.warning(
                     "Hybrid search failed (vector index disabled). Falling back to lexical search."
                 )
-                return self.search_lexical(query, k)
+                return self.search_lexical(query, k, include_deps, tier_boost)
             # Re-raise other exceptions
             raise
+
+        # Apply tier boosting with migration handling
+        for result in converted:
+            tier = result.chunk.metadata.get("tier")
+            if tier is None:
+                tier = "project"
+            boost = tier_boost.get(tier, 1.0)
+            result.score *= boost
+
+        # Filter by tier if needed
+        if not include_deps:
+            converted = [
+                r for r in converted if r.chunk.metadata.get("tier", "project") == "project"
+            ]
+
+        # Re-sort by boosted score
+        converted.sort(key=lambda r: r.score, reverse=True)
+
+        return converted[:k]
 
     def _convert_and_filter_results(
         self, results: dict[str, Any], target_k: int
@@ -273,7 +387,7 @@ class MemvidBackend:
         """Extract file path and line numbers from pci:// URI.
 
         Args:
-            uri: URI in format pci:///absolute/path/to/file.py#line
+            uri: URI in format pci:///absolute/path/to/file.py#start_line-end_line
 
         Returns:
             Tuple of (file_path, start_line, end_line)
@@ -284,12 +398,20 @@ class MemvidBackend:
         # Remove 'pci://' prefix
         path_part = uri[6:]
 
-        # Extract file path and line number
+        # Extract file path and line numbers
         if "#" in path_part:
             file_path, line_str = path_part.rsplit("#", 1)
             try:
-                line = int(line_str)
-                return file_path, line, line
+                # Check if line_str contains a range (start-end)
+                if "-" in line_str:
+                    start_str, end_str = line_str.split("-", 1)
+                    start_line = int(start_str)
+                    end_line = int(end_str)
+                    return file_path, start_line, end_line
+                else:
+                    # Single line number (legacy format)
+                    line = int(line_str)
+                    return file_path, line, line
             except ValueError:
                 return file_path, 1, 1
 
@@ -298,13 +420,44 @@ class MemvidBackend:
     def _convert_results(self, results: dict[str, Any]) -> list[SearchResult]:
         """Convert Memvid results to SearchResult objects."""
         search_results = []
+
+        # Cache file contents to avoid repeated reads
+        file_cache: dict[str, list[str]] = {}
+
         for hit in results.get("hits", []):
             # Extract file path and line from URI (fast, no extra queries)
             uri = hit.get("uri", "")
             file_path, start_line, end_line = self._parse_uri(uri)
 
             # Get code text
-            code = hit.get("text", "") or hit.get("snippet", "") or "# No content"
+            # Semantic search doesn't populate snippets in Memvid, so we reconstruct from file
+            code = hit.get("snippet", "")  # Try snippet first (works for lexical search)
+
+            if not code:
+                # Reconstruct from source file using line numbers (with caching)
+                try:
+                    if file_path and file_path != "unknown":
+                        from pathlib import Path
+
+                        # Check cache first
+                        if file_path not in file_cache:
+                            source_path = Path(file_path)
+                            if source_path.exists():
+                                with open(source_path, "r", encoding="utf-8", errors="ignore") as f:
+                                    file_cache[file_path] = f.readlines()
+
+                        # Get from cache
+                        if file_path in file_cache:
+                            lines = file_cache[file_path]
+                            # Line numbers are 1-based, array is 0-based
+                            if start_line > 0 and end_line > 0:
+                                code_lines = lines[start_line - 1 : end_line]
+                                code = "".join(code_lines).rstrip()
+                except Exception:
+                    pass
+
+            if not code:
+                code = "# No content"
 
             # Parse chunk type from title (since labels are always empty)
             # The title contains the actual chunk type in many cases
@@ -333,6 +486,40 @@ class MemvidBackend:
                 except (ValueError, AttributeError):
                     language = Language.UNKNOWN
 
+            # Extract metadata (includes tier, package info, etc.)
+            # Memvid's find() doesn't return metadata, need to fetch frame by URI
+            metadata = {}
+            if uri:
+                try:
+                    frame_data = self.mem.frame(uri)
+                    if frame_data and isinstance(frame_data.get("extra_metadata"), dict):
+                        # Memvid stores metadata in extra_metadata with JSON-encoded values
+                        import json as json_lib
+
+                        extra_meta = frame_data["extra_metadata"]
+                        for key, value in extra_meta.items():
+                            # Skip internal keys
+                            if key in (
+                                "file_path",
+                                "start_line",
+                                "end_line",
+                                "language",
+                                "parent_header",
+                                "extractous_metadata",
+                            ):
+                                continue
+                            # Parse JSON-encoded values
+                            if isinstance(value, str):
+                                try:
+                                    metadata[key] = json_lib.loads(value)
+                                except (json_lib.JSONDecodeError, ValueError):
+                                    metadata[key] = value
+                            else:
+                                metadata[key] = value
+                except Exception:
+                    # If fetching frame fails, continue without metadata
+                    pass
+
             chunk = Chunk(
                 symbol=hit.get("title", "unknown"),
                 start_line=LineNumber(start_line),
@@ -343,6 +530,7 @@ class MemvidBackend:
                 file_path=FilePath(file_path),
                 parent_header=None,  # Not available without frame() call
                 id=ChunkId(str(hit.get("frame_id", ""))),
+                metadata=metadata,
             )
             search_results.append(
                 SearchResult(
