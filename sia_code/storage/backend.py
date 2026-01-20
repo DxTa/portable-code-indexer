@@ -183,6 +183,73 @@ class MemvidBackend:
             )
         return [ChunkId(str(fid)) for fid in frame_ids]
 
+    def _search_with_tier_boost(
+        self,
+        query: str,
+        mode: str,
+        k: int = 10,
+        include_deps: bool = True,
+        tier_boost: dict[str, float] | None = None,
+    ) -> list[SearchResult]:
+        """Unified search implementation with tier-aware ranking.
+
+        Args:
+            query: Search query
+            mode: Search mode - "sem" (semantic), "lex" (lexical), or "auto" (hybrid)
+            k: Number of results
+            include_deps: Whether to include dependency tier
+            tier_boost: Score multipliers per tier
+
+        Returns:
+            List of search results (filtered and boosted by tier)
+        """
+        # Default boost values
+        if tier_boost is None:
+            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
+
+        # Fetch more to account for filtering/reranking
+        fetch_k = k * 3 if include_deps else k * 2
+        if self.valid_chunks:
+            fetch_k = max(fetch_k, k * 2)
+
+        # Perform search with fallback for semantic/hybrid modes
+        try:
+            results = self.mem.find(query, mode=mode, k=fetch_k, snippet_chars=200)
+            converted = self._convert_and_filter_results(results, fetch_k)
+        except Exception as e:
+            # Fall back to lexical search if vector search fails
+            if mode != "lex" and (
+                "VecIndexDisabledError" in str(type(e)) or "not enabled" in str(e)
+            ):
+                import logging
+
+                logger = logging.getLogger(__name__)
+                mode_name = "Semantic" if mode == "sem" else "Hybrid"
+                logger.warning(
+                    f"{mode_name} search failed (vector index disabled). "
+                    "Falling back to lexical search. "
+                    "Set OPENAI_API_KEY or use --regex for lexical search."
+                )
+                return self._search_with_tier_boost(query, "lex", k, include_deps, tier_boost)
+            # Re-raise other exceptions
+            raise
+
+        # Apply tier boosting with migration handling
+        for result in converted:
+            tier = result.chunk.metadata.get("tier", "project")
+            result.score *= tier_boost.get(tier, 1.0)
+
+        # Filter by tier if needed
+        if not include_deps:
+            converted = [
+                r for r in converted if r.chunk.metadata.get("tier", "project") == "project"
+            ]
+
+        # Re-sort by boosted score
+        converted.sort(key=lambda r: r.score, reverse=True)
+
+        return converted[:k]
+
     def search_semantic(
         self,
         query: str,
@@ -201,53 +268,7 @@ class MemvidBackend:
         Returns:
             List of search results (filtered and boosted by tier)
         """
-        # Default boost values
-        if tier_boost is None:
-            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
-
-        # Fetch more to account for filtering/reranking
-        fetch_k = k * 3 if include_deps else k * 2
-        if self.valid_chunks:
-            fetch_k = max(fetch_k, k * 2)
-
-        try:
-            results = self.mem.find(query, mode="sem", k=fetch_k, snippet_chars=200)
-            converted = self._convert_and_filter_results(results, fetch_k)
-        except Exception as e:
-            # Fall back to lexical search if semantic fails (e.g., embeddings disabled)
-            if "VecIndexDisabledError" in str(type(e)) or "not enabled" in str(e):
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.warning(
-                    "Semantic search failed (vector index disabled). "
-                    "Falling back to lexical search. "
-                    "Set OPENAI_API_KEY or use --regex for lexical search."
-                )
-                return self.search_lexical(query, k, include_deps, tier_boost)
-            # Re-raise other exceptions
-            raise
-
-        # Apply tier boosting with migration handling
-        for result in converted:
-            # MIGRATION: Handle chunks without tier metadata (from old indexes)
-            tier = result.chunk.metadata.get("tier")
-            if tier is None:
-                # Assume project tier for legacy chunks
-                tier = "project"
-            boost = tier_boost.get(tier, 1.0)
-            result.score *= boost
-
-        # Filter by tier if needed
-        if not include_deps:
-            converted = [
-                r for r in converted if r.chunk.metadata.get("tier", "project") == "project"
-            ]
-
-        # Re-sort by boosted score
-        converted.sort(key=lambda r: r.score, reverse=True)
-
-        return converted[:k]
+        return self._search_with_tier_boost(query, "sem", k, include_deps, tier_boost)
 
     def search_lexical(
         self,
@@ -267,36 +288,7 @@ class MemvidBackend:
         Returns:
             List of search results (filtered and boosted by tier)
         """
-        # Default boost values
-        if tier_boost is None:
-            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
-
-        # Fetch more to account for filtering/reranking
-        fetch_k = k * 3 if include_deps else k * 2
-        if self.valid_chunks:
-            fetch_k = max(fetch_k, k * 2)
-
-        results = self.mem.find(query, mode="lex", k=fetch_k, snippet_chars=200)
-        converted = self._convert_and_filter_results(results, fetch_k)
-
-        # Apply tier boosting with migration handling
-        for result in converted:
-            tier = result.chunk.metadata.get("tier")
-            if tier is None:
-                tier = "project"
-            boost = tier_boost.get(tier, 1.0)
-            result.score *= boost
-
-        # Filter by tier if needed
-        if not include_deps:
-            converted = [
-                r for r in converted if r.chunk.metadata.get("tier", "project") == "project"
-            ]
-
-        # Re-sort by boosted score
-        converted.sort(key=lambda r: r.score, reverse=True)
-
-        return converted[:k]
+        return self._search_with_tier_boost(query, "lex", k, include_deps, tier_boost)
 
     def search_hybrid(
         self,
@@ -316,49 +308,7 @@ class MemvidBackend:
         Returns:
             List of search results (filtered and boosted by tier)
         """
-        # Default boost values
-        if tier_boost is None:
-            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
-
-        # Fetch more to account for filtering/reranking
-        fetch_k = k * 3 if include_deps else k * 2
-        if self.valid_chunks:
-            fetch_k = max(fetch_k, k * 2)
-
-        try:
-            results = self.mem.find(query, mode="auto", k=fetch_k, snippet_chars=200)
-            converted = self._convert_and_filter_results(results, fetch_k)
-        except Exception as e:
-            # Fall back to lexical search if hybrid fails (e.g., embeddings disabled)
-            if "VecIndexDisabledError" in str(type(e)) or "not enabled" in str(e):
-                import logging
-
-                logger = logging.getLogger(__name__)
-                logger.warning(
-                    "Hybrid search failed (vector index disabled). Falling back to lexical search."
-                )
-                return self.search_lexical(query, k, include_deps, tier_boost)
-            # Re-raise other exceptions
-            raise
-
-        # Apply tier boosting with migration handling
-        for result in converted:
-            tier = result.chunk.metadata.get("tier")
-            if tier is None:
-                tier = "project"
-            boost = tier_boost.get(tier, 1.0)
-            result.score *= boost
-
-        # Filter by tier if needed
-        if not include_deps:
-            converted = [
-                r for r in converted if r.chunk.metadata.get("tier", "project") == "project"
-            ]
-
-        # Re-sort by boosted score
-        converted.sort(key=lambda r: r.score, reverse=True)
-
-        return converted[:k]
+        return self._search_with_tier_boost(query, "auto", k, include_deps, tier_boost)
 
     def _convert_and_filter_results(
         self, results: dict[str, Any], target_k: int

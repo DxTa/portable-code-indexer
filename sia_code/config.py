@@ -119,4 +119,4 @@ class Config(BaseModel):
     @classmethod
     def get_default_config_path(cls) -> Path:
         """Get default configuration file path."""
-        return Path(".pci/config.json")
+        return Path(".sia-code/config.json")
