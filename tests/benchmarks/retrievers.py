@@ -94,12 +94,12 @@ class SiaCodeRetriever:
                 continue
             seen_chunks.add(chunk_id)
 
-            # Format: file path, line range, content
+            # Format: file path, line range, code
             formatted = (
                 f"# File: {chunk.file_path}\n"
                 f"# Lines: {chunk.start_line}-{chunk.end_line}\n"
                 f"# Type: {chunk.chunk_type}\n\n"
-                f"{chunk.content}\n"
+                f"{chunk.code}\n"
             )
             chunks.append(formatted)
 
