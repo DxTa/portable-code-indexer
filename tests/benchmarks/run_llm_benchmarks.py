@@ -24,57 +24,30 @@ from .tasks.architectural_tasks import (
     ArchitecturalTask,
 )
 from .llm_evaluation import create_judge, save_evaluation_results, EvaluationResult
+from .retrievers import create_retriever
 
 
-def dummy_sia_code_retriever(task: ArchitecturalTask, top_k: int = 10) -> List[str]:
-    """Dummy retriever - replace with actual sia-code integration.
-
-    Args:
-        task: The architectural task
-        top_k: Number of chunks to retrieve
-
-    Returns:
-        List of retrieved code chunks
-    """
-    # TODO: Integrate with actual sia-code backend
-    # For now, return placeholder
-    return [
-        f"# Placeholder chunk {i + 1} for task: {task.task_id}\n"
-        f"# This would be actual code retrieved by sia-code\n"
-        f"# Question: {task.question}"
-        for i in range(min(top_k, 3))
-    ]
+# Default paths for retrievers (can be overridden via CLI args)
+DEFAULT_INDEX_PATH = Path(".pci/index.mv2")
+DEFAULT_CODEBASE_PATH = Path(".")
 
 
-def dummy_grep_retriever(task: ArchitecturalTask) -> List[str]:
-    """Dummy grep-based retriever - replace with actual implementation.
-
-    Args:
-        task: The architectural task
-
-    Returns:
-        List of grep results
-    """
-    # TODO: Implement actual grep-based retrieval
-    return [
-        f"# Grep result {i + 1} for task: {task.task_id}\n# Simple text search results\n"
-        for i in range(2)
-    ]
-
-
-def generate_tool_response(task: ArchitecturalTask, tool_name: str, retriever_fn) -> str:
+def generate_tool_response(
+    task: ArchitecturalTask, tool_name: str, retriever, top_k: int = 10
+) -> str:
     """Generate a tool's response to an architectural task.
 
     Args:
         task: The architectural task
         tool_name: Name of the tool
-        retriever_fn: Function to retrieve code chunks
+        retriever: Retriever instance to use
+        top_k: Number of chunks to retrieve
 
     Returns:
         Tool's response to the task
     """
     # Retrieve chunks
-    chunks = retriever_fn(task)
+    chunks = retriever.retrieve(task, top_k=top_k)
 
     # Format response (in real implementation, this would use the tool's actual logic)
     response = f"# {tool_name.upper()} Analysis\n\n"
@@ -95,7 +68,12 @@ def generate_tool_response(task: ArchitecturalTask, tool_name: str, retriever_fn
 
 
 def run_single_evaluation(
-    task_id: str, tool_name: str, judge_model: str, rubric: str = "comprehensive"
+    task_id: str,
+    tool_name: str,
+    judge_model: str,
+    rubric: str = "comprehensive",
+    index_path: Path = DEFAULT_INDEX_PATH,
+    codebase_path: Path = DEFAULT_CODEBASE_PATH,
 ) -> EvaluationResult:
     """Run evaluation for a single task and tool.
 
@@ -104,6 +82,8 @@ def run_single_evaluation(
         tool_name: Name of the tool to evaluate
         judge_model: Model to use as judge
         rubric: Scoring rubric to use
+        index_path: Path to index file (for sia-code)
+        codebase_path: Path to codebase root (for grep)
 
     Returns:
         Evaluation result
@@ -115,13 +95,12 @@ def run_single_evaluation(
 
     task = tasks[task_id]
 
-    # Select retriever
-    if tool_name == "sia-code":
-        retriever = dummy_sia_code_retriever
-    elif tool_name == "grep":
-        retriever = dummy_grep_retriever
-    else:
-        raise ValueError(f"Unknown tool: {tool_name}")
+    # Create retriever
+    retriever = create_retriever(
+        tool_name=tool_name,
+        index_path=index_path if tool_name == "sia-code" else None,
+        codebase_path=codebase_path if tool_name == "grep" else None,
+    )
 
     # Generate tool response
     tool_response = generate_tool_response(task, tool_name, retriever)
@@ -133,13 +112,21 @@ def run_single_evaluation(
     return result
 
 
-def run_comparison(task_id: str, tool_names: List[str], judge_model: str) -> Dict[str, Any]:
+def run_comparison(
+    task_id: str,
+    tool_names: List[str],
+    judge_model: str,
+    index_path: Path = DEFAULT_INDEX_PATH,
+    codebase_path: Path = DEFAULT_CODEBASE_PATH,
+) -> Dict[str, Any]:
     """Run side-by-side comparison of multiple tools.
 
     Args:
         task_id: ID of the task to evaluate
         tool_names: List of tool names to compare
         judge_model: Model to use as judge
+        index_path: Path to index file (for sia-code)
+        codebase_path: Path to codebase root (for grep)
 
     Returns:
         Comparison results
@@ -154,13 +141,11 @@ def run_comparison(task_id: str, tool_names: List[str], judge_model: str) -> Dic
     # Generate responses from all tools
     tool_responses = {}
     for tool_name in tool_names:
-        if tool_name == "sia-code":
-            retriever = dummy_sia_code_retriever
-        elif tool_name == "grep":
-            retriever = dummy_grep_retriever
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
-
+        retriever = create_retriever(
+            tool_name=tool_name,
+            index_path=index_path if tool_name == "sia-code" else None,
+            codebase_path=codebase_path if tool_name == "grep" else None,
+        )
         tool_responses[tool_name] = generate_tool_response(task, tool_name, retriever)
 
     # Create judge and compare
@@ -176,6 +161,8 @@ def run_benchmark_suite(
     judges: List[str],
     output_dir: Path,
     rubric: str = "comprehensive",
+    index_path: Path = DEFAULT_INDEX_PATH,
+    codebase_path: Path = DEFAULT_CODEBASE_PATH,
 ) -> None:
     """Run complete benchmark suite for a codebase.
 
@@ -185,6 +172,8 @@ def run_benchmark_suite(
         judges: List of judge models to use
         output_dir: Directory to save results
         rubric: Scoring rubric to use
+        index_path: Path to index file (for sia-code)
+        codebase_path: Path to codebase root (for grep)
     """
     # Get tasks for codebase
     tasks = get_tasks_by_codebase(codebase)
@@ -210,7 +199,14 @@ def run_benchmark_suite(
 
             for judge_model in judges:
                 try:
-                    result = run_single_evaluation(task.task_id, tool_name, judge_model, rubric)
+                    result = run_single_evaluation(
+                        task.task_id,
+                        tool_name,
+                        judge_model,
+                        rubric,
+                        index_path,
+                        codebase_path,
+                    )
                     all_results.append(result)
 
                     print(f"    {judge_model}: {result.score:.1f}/100")
@@ -272,6 +268,18 @@ def main():
         default=Path("benchmark_results"),
         help="Output directory for results",
     )
+    parser.add_argument(
+        "--index-path",
+        type=Path,
+        default=DEFAULT_INDEX_PATH,
+        help="Path to .pci/index.mv2 file (for sia-code retriever)",
+    )
+    parser.add_argument(
+        "--codebase-path",
+        type=Path,
+        default=DEFAULT_CODEBASE_PATH,
+        help="Path to codebase root directory (for grep retriever)",
+    )
     parser.add_argument("--list-tasks", action="store_true", help="List all available tasks")
 
     args = parser.parse_args()
@@ -293,7 +301,15 @@ def main():
         tools = args.compare.split(",") if args.compare else ["sia-code"]
         judges = args.judges.split(",") if args.judges else [args.judge]
 
-        run_benchmark_suite(args.suite, tools, judges, args.output, args.rubric)
+        run_benchmark_suite(
+            args.suite,
+            tools,
+            judges,
+            args.output,
+            args.rubric,
+            args.index_path,
+            args.codebase_path,
+        )
         return
 
     # Run comparison
@@ -303,7 +319,13 @@ def main():
             sys.exit(1)
 
         tools = args.compare.split(",")
-        result = run_comparison(args.task, tools, args.judge)
+        result = run_comparison(
+            args.task,
+            tools,
+            args.judge,
+            args.index_path,
+            args.codebase_path,
+        )
 
         print("\n=== Comparison Results ===")
         print(json.dumps(result, indent=2))
@@ -311,7 +333,14 @@ def main():
 
     # Run single evaluation
     if args.task and args.tool:
-        result = run_single_evaluation(args.task, args.tool, args.judge, args.rubric)
+        result = run_single_evaluation(
+            args.task,
+            args.tool,
+            args.judge,
+            args.rubric,
+            args.index_path,
+            args.codebase_path,
+        )
 
         print("\n=== Evaluation Result ===")
         print(f"Task: {result.task_id}")

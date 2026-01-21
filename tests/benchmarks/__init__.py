@@ -38,6 +38,12 @@ from .tasks.architectural_tasks import (
     get_tasks_by_difficulty,
     get_tasks_by_type,
 )
+from .retrievers import (
+    SiaCodeRetriever,
+    GrepRetriever,
+    ChunkHoundRetriever,
+    create_retriever,
+)
 
 __all__ = [
     # Academic metrics
@@ -59,4 +65,9 @@ __all__ = [
     "get_tasks_by_codebase",
     "get_tasks_by_difficulty",
     "get_tasks_by_type",
+    # Retrievers
+    "SiaCodeRetriever",
+    "GrepRetriever",
+    "ChunkHoundRetriever",
+    "create_retriever",
 ]
