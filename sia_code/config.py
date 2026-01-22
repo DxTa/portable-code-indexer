@@ -173,6 +173,14 @@ class AdaptiveConfig(BaseModel):
     search_strategy: str = "weighted"  # "weighted" or "non_dominated"
 
 
+class SummarizationConfig(BaseModel):
+    """AI-powered commit summarization configuration."""
+
+    enabled: bool = True
+    model: str = "google/flan-t5-base"  # 248MB, best quality/speed balance
+    max_commits: int = 20  # Max commits to include in summary
+
+
 class Config(BaseModel):
     """Main PCI configuration."""
 
@@ -184,6 +192,7 @@ class Config(BaseModel):
     dependencies: DependencyConfig = Field(default_factory=DependencyConfig)
     documentation: DocumentationConfig = Field(default_factory=DocumentationConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
+    summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
 
     @classmethod
     def load(cls, path: Path) -> "Config":

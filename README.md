@@ -65,59 +65,25 @@ sia-code status
 
 ## Commands
 
-### Core Commands
-
 | Command | Description |
 |---------|-------------|
 | `sia-code init` | Initialize index in current directory |
-| `sia-code init --path PATH` | Initialize in specific directory |
-| `sia-code init --dry-run` | Preview project analysis without creating index |
-| `sia-code index PATH` | Index codebase (default: current directory `.`) |
-| `sia-code index --update` | Re-index only changed files (10x faster) |
-| `sia-code index --clean` | Delete existing index and rebuild from scratch |
-| `sia-code index --watch` | Auto-reindex on file changes (Ctrl+C to stop) |
-| `sia-code index --parallel` | Use parallel processing (best for 100+ files) |
-| `sia-code index --workers N` | Number of worker processes (default: CPU count) |
-| `sia-code index --debounce N` | Seconds to wait before reindexing (default: 2.0) |
+| `sia-code index .` | Index codebase |
+| `sia-code index --update` | Re-index changed files only |
+| `sia-code index --watch` | Auto-reindex on file changes |
+| `sia-code search "query"` | Hybrid search (BM25 + semantic) |
+| `sia-code search --regex "pattern"` | Lexical-only search |
+| `sia-code search --semantic-only "query"` | Semantic-only search |
+| `sia-code research "question"` | Multi-hop code discovery |
 | `sia-code status` | Index health and staleness metrics |
-| `sia-code compact` | Remove stale chunks (runs if >20% stale) |
-| `sia-code compact --threshold 0.1` | Compact if staleness exceeds threshold (0.1 = 10%) |
-| `sia-code compact --force` | Force compaction regardless of staleness ratio |
+| `sia-code compact` | Remove stale chunks |
+| `sia-code memory list` | List timeline/changelogs/decisions |
+| `sia-code memory changelog` | Generate changelog from git |
+| `sia-code memory sync-git` | Import events from git history |
+| `sia-code config show` | Display configuration |
+| `sia-code interactive` | Live search mode |
 
-### Search Commands
-
-| Command | Description |
-|---------|-------------|
-| `sia-code search "query"` | Hybrid search: BM25 + semantic (default, best results) |
-| `sia-code search --regex "pattern"` | Lexical-only search using FTS5 BM25 |
-| `sia-code search --semantic-only "query"` | Semantic-only vector search |
-| `sia-code search -k N "query"` | Number of results to return (default: 10) |
-| `sia-code search --no-deps "query"` | Exclude dependency code from results |
-| `sia-code search --deps-only "query"` | Show only dependency code |
-| `sia-code search --no-filter "query"` | Include stale chunks (default: filtered) |
-| `sia-code search --format json "query"` | Output as JSON (options: text, json, table, csv) |
-| `sia-code search -o FILE "query"` | Save results to file instead of stdout |
-
-### Research & Interactive
-
-| Command | Description |
-|---------|-------------|
-| `sia-code research "question"` | Multi-hop code discovery with relationship mapping |
-| `sia-code research --hops N` | Maximum relationship depth (default: 2) |
-| `sia-code research -k N` | Results per hop (default: 5) |
-| `sia-code research --graph` | Show call graph visualization |
-| `sia-code research --no-filter` | Include stale chunks (default: filtered) |
-| `sia-code interactive` | Live search mode with result navigation |
-| `sia-code interactive --regex` | Interactive mode with lexical search |
-| `sia-code interactive -k N` | Number of results per query (default: 10) |
-
-### Configuration
-
-| Command | Description |
-|---------|-------------|
-| `sia-code config show` | Display current configuration |
-| `sia-code config path` | Show configuration file location |
-| `sia-code config edit` | Open configuration in $EDITOR |
+**See [docs/CLI_FEATURES.md](docs/CLI_FEATURES.md) for complete command reference with all options and examples.**
 
 ## Configuration
 
@@ -145,6 +111,18 @@ sia-code index --clean
 - Adjust chunk sizes (`max_chunk_size`, `min_chunk_size`)
 
 View config: `sia-code config show`
+
+**AI Summarization** (optional, enhances git changelogs):
+
+```json
+{
+  "summarization": {
+    "enabled": true,
+    "model": "google/flan-t5-base",
+    "max_commits": 20
+  }
+}
+```
 
 ## Output Formats
 
@@ -194,8 +172,9 @@ sia-code search "query" --output results.json    # Save to file
 - [docs/PERFORMANCE_ANALYSIS.md](docs/PERFORMANCE_ANALYSIS.md) - Why sia-code outperforms cAST by +12.9 pts
 
 ### Usage & Configuration
-- [docs/CLI_FEATURES.md](docs/CLI_FEATURES.md) - Complete CLI reference and examples
-- [ROADMAP.md](ROADMAP.md) - Future development plans
+- [docs/CLI_FEATURES.md](docs/CLI_FEATURES.md) - **Complete CLI reference and examples**
+- [examples/](examples/) - Test results and usage examples
+- [ROADMAP.md](ROADMAP.md) - Development progress
 - [KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) - Current limitations and workarounds
 
 ## License

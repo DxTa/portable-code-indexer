@@ -254,6 +254,10 @@ class UsearchSqliteBackend(StorageBackend):
         self.conn.row_factory = sqlite3.Row  # Enable column access by name
         self._create_tables()
 
+        # Mark as not viewed (new index, safe to save on close)
+        self._is_viewed = False
+        self._modified_after_view = False
+
     def open_index(self) -> None:
         """Open an existing index."""
         if not self.vector_path.exists():
@@ -267,6 +271,10 @@ class UsearchSqliteBackend(StorageBackend):
         if self.vector_path.stat().st_size > 0:
             self.vector_index.view(str(self.vector_path))
 
+        # Mark as viewed (read-only memory-mapped, do NOT save on close)
+        self._is_viewed = True
+        self._modified_after_view = False  # Track if vectors added after view
+
         # Open SQLite database (check_same_thread=False for parallel search)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -274,8 +282,17 @@ class UsearchSqliteBackend(StorageBackend):
     def close(self) -> None:
         """Close the index and save changes."""
         if self.vector_index is not None:
-            # Save usearch index
-            self.vector_index.save(str(self.vector_path))
+            # Only save if we created/modified the index, not if we just viewed it
+            # (save() on a viewed index without modifications creates a 0-byte file)
+            # BUT save if we added new vectors after viewing
+            is_viewed = getattr(self, "_is_viewed", False)
+            modified_after_view = getattr(self, "_modified_after_view", False)
+
+            if not is_viewed or modified_after_view:
+                self.vector_index.save(str(self.vector_path))
+
+            self._is_viewed = False  # Reset flags
+            self._modified_after_view = False
 
         if self.conn is not None:
             self.conn.commit()
@@ -507,6 +524,10 @@ class UsearchSqliteBackend(StorageBackend):
                 vector = self._embed(f"{chunk.symbol}\n\n{chunk.code}")
                 vector_key = self._make_chunk_key(chunk_id)
                 self.vector_index.add(chunk_id, vector)  # Use numeric ID, we'll prefix on search
+
+                # Track that we modified the index after viewing
+                if getattr(self, "_is_viewed", False):
+                    self._modified_after_view = True
 
             chunk_ids.append(str(chunk_id))
 

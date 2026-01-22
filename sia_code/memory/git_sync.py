@@ -1,11 +1,14 @@
 """Git sync service for importing timeline events and changelogs."""
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .git_events import GitEventExtractor
 from ..storage.base import StorageBackend
+
+logger = logging.getLogger(__name__)
 
 
 class GitSyncStats:
@@ -34,16 +37,29 @@ class GitSyncStats:
 class GitSyncService:
     """Service for syncing git history to memory."""
 
-    def __init__(self, backend: StorageBackend, repo_path: Path | str):
+    def __init__(self, backend: StorageBackend, repo_path: Path | str, config=None):
         """Initialize git sync service.
 
         Args:
             backend: Storage backend for writing memory
             repo_path: Path to git repository
+            config: Optional config object with summarization settings
         """
         self.backend = backend
         self.repo_path = Path(repo_path)
         self.extractor = GitEventExtractor(repo_path)
+        self.config = config
+        self._summarizer = None
+
+    @property
+    def summarizer(self):
+        """Lazy load summarizer only if enabled in config."""
+        if self._summarizer is None and self.config is not None:
+            if hasattr(self.config, "summarization") and self.config.summarization.enabled:
+                from .summarizer import get_summarizer
+
+                self._summarizer = get_summarizer(self.config.summarization.model)
+        return self._summarizer
 
     def sync(
         self,
@@ -73,11 +89,30 @@ class GitSyncService:
         if not merges_only:
             try:
                 changelogs = self.extractor.scan_git_tags()
-                for changelog_data in changelogs:
+                for i, changelog_data in enumerate(changelogs):
                     # Check if already exists
                     if self._is_duplicate_changelog(changelog_data["tag"]):
                         stats.changelogs_skipped += 1
                         continue
+
+                    # Enhance summary with AI if enabled
+                    # Tags are sorted newest-first, so look at next tag (older) for commit range
+                    if self.summarizer and i + 1 < len(changelogs):
+                        try:
+                            older_tag = changelogs[i + 1]["tag"]
+                            commits = self.extractor.get_commits_between_tags(
+                                older_tag, changelog_data["tag"]
+                            )
+                            if commits:
+                                enhanced_summary = self.summarizer.enhance_changelog(
+                                    changelog_data["tag"],
+                                    changelog_data.get("summary", ""),
+                                    commits,
+                                )
+                                changelog_data["summary"] = enhanced_summary
+                                logger.debug(f"Enhanced changelog for {changelog_data['tag']}")
+                        except Exception as e:
+                            logger.debug(f"Could not enhance changelog: {e}")
 
                     if not dry_run:
                         self.backend.add_changelog(
@@ -115,6 +150,23 @@ class GitSyncService:
                     ):
                         stats.timeline_skipped += 1
                         continue
+
+                    # Enhance summary with AI if enabled
+                    if self.summarizer and "merge_commit" in event_data:
+                        try:
+                            commits = self.extractor.get_commits_in_merge(
+                                event_data["merge_commit"]
+                            )
+                            if commits:
+                                enhanced_summary = self.summarizer.enhance_timeline_event(
+                                    event_data["summary"], commits
+                                )
+                                event_data["summary"] = enhanced_summary
+                                logger.debug(
+                                    f"Enhanced timeline event for merge {event_data['to_ref']}"
+                                )
+                        except Exception as e:
+                            logger.debug(f"Could not enhance timeline event: {e}")
 
                     if not dry_run:
                         self.backend.add_timeline_event(

@@ -1,36 +1,42 @@
-# PCI Roadmap
+# Sia-Code Roadmap
 
-**Current Version:** 2.4  
-**Last Updated:** 2026-01-12
+**Last Updated:** 2026-01-23
 
-This document tracks remaining development work for PCI.
+This document tracks development progress and remaining work.
 
-## Completed Features (v2.0-v2.4)
-
-The following features are fully implemented and working:
+## Completed Features
 
 ### Core Features
-- ✅ cAST Semantic Chunking via Tree-sitter
-- ✅ 12-Language Support (Python, JS/TS, Go, Rust, Java, C, C++, C#, Ruby, PHP, JSX, TSX)
-- ✅ Memvid Storage Backend (.mv2 portable files)
-- ✅ Lexical Search (BM25)
-- ✅ Semantic Search (OpenAI embeddings with automatic fallback)
-- ✅ Multi-hop Code Research
+- [x] AST Semantic Chunking via Tree-sitter
+- [x] 12-Language Support (Python, JS/TS, Go, Rust, Java, C, C++, C#, Ruby, PHP, JSX, TSX)
+- [x] Usearch + SQLite Backend (portable .sia-code/ directory)
+- [x] Lexical Search (BM25 via FTS5)
+- [x] Semantic Search (HuggingFace/OpenAI embeddings)
+- [x] Hybrid Search (RRF fusion)
+- [x] Multi-hop Code Research
 
-### Index Management (v2.0)
-- ✅ Chunk Metadata Sidecar (valid/stale tracking)
-- ✅ Query-Time Filtering (excludes stale chunks)
-- ✅ Staleness Detection with health metrics
-- ✅ Index Compaction (`pci compact`)
-- ✅ Incremental Indexing (`pci index --update`)
+### Index Management
+- [x] Chunk Metadata Sidecar (valid/stale tracking)
+- [x] Query-Time Filtering (excludes stale chunks)
+- [x] Staleness Detection with health metrics
+- [x] Index Compaction (`sia-code compact`)
+- [x] Incremental Indexing (`sia-code index --update`)
 
-### CLI Enhancements (v2.3-v2.4)
-- ✅ Output Formats: text, json, table, csv
-- ✅ File Export (`--output`)
-- ✅ Config Management: show, path, edit
-- ✅ Interactive Search Mode (`pci interactive`)
-- ✅ Watch Mode (`pci index --watch`)
-- ✅ Parallel Indexing (`--parallel --workers N`)
+### CLI Features
+- [x] Output Formats: text, json, table, csv
+- [x] File Export (`--output`)
+- [x] Config Management: show, path, edit
+- [x] Interactive Search Mode (`sia-code interactive`)
+- [x] Watch Mode (`sia-code index --watch`)
+- [x] Parallel Indexing (`--parallel --workers N`)
+
+### Memory & Git Integration
+- [x] Memory System (timeline events, changelogs, decisions)
+- [x] Git History Sync (`sia-code memory sync-git`)
+- [x] AI-Powered Summarization (google/flan-t5-base)
+- [x] Memory CLI Commands (`sia-code memory list/search/changelog`)
+- [x] Decision Tracking (add/approve/reject workflow)
+- [x] Vector Persistence Bug Fix (usearch view mode)
 
 ---
 
@@ -41,10 +47,9 @@ The following features are fully implemented and working:
 **Status:** Not Started  
 **Effort:** 4-6 hours
 
-Enable LLM agents to use PCI via MCP protocol.
+Enable LLM agents to use sia-code via MCP protocol.
 
-**Deliverables:**
-- [ ] Create `pci-mcp-server/` package
+- [ ] Create `sia-code-mcp-server/` package
 - [ ] Expose tools: `search_semantic`, `search_regex`, `code_research`, `get_stats`
 - [ ] Integration with OpenCode/Claude
 - [ ] Documentation for MCP configuration
@@ -54,16 +59,14 @@ Enable LLM agents to use PCI via MCP protocol.
 **Status:** Partial  
 **Effort:** 8-12 hours
 
-Improve indexing and search performance for large codebases.
-
 **Completed:**
-- ✅ Parallel chunking (ProcessPoolExecutor)
+- [x] Parallel chunking (ProcessPoolExecutor)
 
 **Remaining:**
 - [ ] Batch embeddings (group chunks for API efficiency)
 - [ ] Parser result caching (memoize unchanged files)
 - [ ] Index sharding (split large codebases)
-- [ ] Async storage (non-blocking Memvid writes)
+- [ ] Async storage (non-blocking writes)
 
 **Benchmarks:**
 | Operation | Current | Target |
@@ -77,9 +80,8 @@ Improve indexing and search performance for large codebases.
 **Status:** Optional  
 **Effort:** 2-4 hours per language
 
-Languages with enum definitions but no AST extractor yet:
 - [ ] Kotlin
-- [ ] Swift  
+- [ ] Swift
 - [ ] Haskell
 
 ### Priority 4: IDE Plugins (Future)
@@ -93,9 +95,9 @@ Languages with enum definitions but no AST extractor yet:
 
 ### Priority 5: Additional CLI Features (Low Priority)
 
-- [ ] Export/import indices (`pci export`, `pci import`)
-- [ ] `pci reembed` command (update embeddings for existing chunks)
-- [ ] Hybrid search weighting configuration
+- [ ] Export/import indices (`sia-code export`, `sia-code import`)
+- [ ] `sia-code reembed` command (update embeddings for existing chunks)
+- [ ] Hybrid search weighting configuration via CLI
 
 ---
 

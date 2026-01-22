@@ -379,7 +379,7 @@ def index(
 
                     # Reopen backend for git sync
                     backend.open_index()
-                    sync_service = GitSyncService(backend, Path(path))
+                    sync_service = GitSyncService(backend, Path(path), config=config)
                     sync_stats = sync_service.sync(since="HEAD~100", limit=50)
 
                     # Display brief sync summary

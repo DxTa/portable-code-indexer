@@ -1,5 +1,6 @@
 """Git integration for extracting timeline events and changelogs."""
 
+import logging
 import re
 import subprocess
 from datetime import datetime
@@ -126,6 +127,7 @@ class GitEventExtractor:
                     "diff_stats": diff_stats,
                     "importance": self._determine_importance(diff_stats),
                     "created_at": commit.committed_datetime,
+                    "merge_commit": commit,  # Include for summarization
                 }
 
                 events.append(event)
@@ -278,6 +280,52 @@ class GitEventExtractor:
             return "medium"
         else:
             return "low"
+
+    def get_commits_between_tags(self, from_tag: str, to_tag: str) -> list[str]:
+        """Get commit messages between two tags.
+
+        Args:
+            from_tag: Starting tag (exclusive)
+            to_tag: Ending tag (inclusive)
+
+        Returns:
+            List of commit messages (first line only)
+        """
+        try:
+            commits = list(self.repo.iter_commits(f"{from_tag}..{to_tag}"))
+            # Return first line of each commit message
+            return [c.message.strip().split("\n")[0] for c in commits]
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Could not get commits between {from_tag} and {to_tag}: {e}")
+            return []
+
+    def get_commits_in_merge(self, merge_commit) -> list[str]:
+        """Get commit messages from a merged branch.
+
+        Args:
+            merge_commit: The merge commit object
+
+        Returns:
+            List of commit messages from the merged branch (first line only)
+        """
+        if len(merge_commit.parents) < 2:
+            return []
+
+        try:
+            # Get commits from second parent (merged branch) to merge-base
+            base = self.repo.merge_base(merge_commit.parents[0], merge_commit.parents[1])
+            if base:
+                commits = list(
+                    self.repo.iter_commits(f"{base[0].hexsha}..{merge_commit.parents[1].hexsha}")
+                )
+                return [c.message.strip().split("\n")[0] for c in commits]
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Could not get commits for merge {merge_commit.hexsha[:7]}: {e}")
+            return []
+
+        return []
 
 
 # Convenience functions

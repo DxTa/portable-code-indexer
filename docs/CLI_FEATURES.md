@@ -10,10 +10,11 @@ Complete guide to sia-code command-line interface, including all commands, optio
   - [init](#init---initialize-index)
   - [index](#index---build-index)
   - [search](#search---query-code)
-  - [stats](#stats---view-statistics)
-  - [config](#config---manage-configuration)
-  - [status](#status---check-index-health)
   - [research](#research---multi-hop-exploration)
+  - [status](#status---check-index-health)
+  - [compact](#compact---remove-stale-chunks)
+  - [memory](#memory---project-memory)
+  - [config](#config---manage-configuration)
 - [Configuration](#configuration)
 - [Advanced Features](#advanced-features)
 - [Migration Guide](#migration-guide)
@@ -54,8 +55,8 @@ sia-code index .
 # 3. Search
 sia-code search "authentication middleware"
 
-# 4. View statistics
-sia-code stats
+# 4. Check index status
+sia-code status
 ```
 
 ---
@@ -406,62 +407,6 @@ The `vector_weight` setting in `.sia-code/config.json` controls hybrid search:
 
 ---
 
-### `stats` - View Statistics
-
-Display index statistics and health information.
-
-**Usage:**
-```bash
-sia-code stats [OPTIONS]
-```
-
-**Options:**
-
-| Option | Description |
-|--------|-------------|
-| `--detailed` | Show per-language breakdown |
-| `--health` | Show index health metrics |
-
-**Examples:**
-
-```bash
-# Basic stats
-sia-code stats
-
-# Detailed breakdown
-sia-code stats --detailed
-
-# Health check
-sia-code stats --health
-```
-
-**Output:**
-
-```
-Index Statistics
-
-  Files indexed: 303
-  Total chunks: 8,676
-  Index size: 24.9 MB
-  Last updated: 2026-01-22 14:30:45
-
-  Configuration:
-    Embedding model: BAAI/bge-small-en-v1.5
-    Embedding dimensions: 384
-    Vector weight: 0.0 (lexical-only)
-    Max chunk size: 1200 chars
-
-  Languages:
-    Python: 245 files, 7,234 chunks
-    TypeScript: 58 files, 1,442 chunks
-
-  Index Health: 🟢 Healthy
-    Valid chunks: 8,676 (100%)
-    Stale chunks: 0 (0%)
-```
-
----
-
 ### `config` - Manage Configuration
 
 View and modify sia-code configuration.
@@ -555,21 +500,207 @@ Index Health Status
 
 ---
 
-### `research` - Multi-Hop Exploration
+### `compact` - Remove Stale Chunks
 
-Perform multi-hop code exploration (advanced feature).
+Remove stale chunks from the index to reduce size and improve search quality.
 
 **Usage:**
 ```bash
-sia-code research QUERY [OPTIONS]
+sia-code compact [OPTIONS]
 ```
 
 **Options:**
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--hops N` | Number of hop iterations | `2` |
-| `--expand N` | Results per hop | `5` |
+| `--threshold FLOAT` | Staleness ratio to trigger compaction | `0.2` (20%) |
+| `--force` | Force compaction regardless of staleness | `false` |
+
+**Examples:**
+
+```bash
+# Compact if >20% stale (default)
+sia-code compact
+
+# Compact if >10% stale
+sia-code compact --threshold 0.1
+
+# Force compaction regardless
+sia-code compact --force
+```
+
+**When to use:**
+- Index health shows 🟡 Degraded or 🔴 Poor
+- After deleting many files
+- Before sharing index with team
+
+---
+
+### `memory` - Project Memory
+
+Manage project memory including timeline events, changelogs, and technical decisions.
+
+**Usage:**
+```bash
+sia-code memory [COMMAND] [OPTIONS]
+```
+
+**Subcommands:**
+
+| Command | Description |
+|---------|-------------|
+| `list` | List memory items (decisions, timeline, changelogs) |
+| `changelog` | Generate changelog from memory |
+| `search` | Search project memory |
+| `sync-git` | Import timeline events and changelogs from git |
+| `timeline` | Show project timeline events |
+| `add-decision` | Add a pending technical decision |
+| `approve` | Approve a pending decision |
+| `reject` | Reject a pending decision |
+| `export` | Export memory to JSON file |
+| `import` | Import memory from JSON file |
+
+#### `memory list`
+
+List memory items by type.
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--type TYPE` | Filter by type: `timeline`, `changelog`, `decision` | all |
+| `--limit N` | Maximum items to show | `10` |
+| `--status STATUS` | Filter decisions: `pending`, `approved`, `rejected` | all |
+
+**Examples:**
+
+```bash
+# List all timeline events
+sia-code memory list --type timeline
+
+# List changelogs
+sia-code memory list --type changelog --limit 20
+
+# List pending decisions
+sia-code memory list --type decision --status pending
+```
+
+#### `memory changelog`
+
+Generate changelog from stored memory.
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--format FORMAT` | Output format: `text`, `json`, `markdown` | `text` |
+| `-o, --output FILE` | Save to file | stdout |
+| `RANGE` | Tag range (e.g., `v1.0.0..v2.0.0`) | all |
+
+**Examples:**
+
+```bash
+# Generate markdown changelog
+sia-code memory changelog --format markdown
+
+# Export to file
+sia-code memory changelog --format markdown -o CHANGELOG.md
+
+# Specific tag range
+sia-code memory changelog v1.0.0..v2.0.0
+```
+
+#### `memory sync-git`
+
+Import timeline events and changelogs from git history.
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--limit N` | Maximum events to import | `50` |
+| `--since DATE` | Only events after date | none |
+
+**Examples:**
+
+```bash
+# Sync all git history
+sia-code memory sync-git
+
+# Sync last 100 events
+sia-code memory sync-git --limit 100
+```
+
+#### `memory search`
+
+Search project memory.
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--limit N` | Maximum results | `10` |
+
+**Examples:**
+
+```bash
+# Search for authentication-related items
+sia-code memory search "authentication"
+
+# Search with more results
+sia-code memory search "database migration" --limit 20
+```
+
+#### `memory add-decision`
+
+Add a pending technical decision for tracking.
+
+**Examples:**
+
+```bash
+# Add a decision
+sia-code memory add-decision "Migrate from REST to GraphQL"
+
+# Approve decision ID 1
+sia-code memory approve 1
+
+# Reject decision ID 2
+sia-code memory reject 2
+```
+
+#### `memory export/import`
+
+Export and import memory for backup or sharing.
+
+**Examples:**
+
+```bash
+# Export to JSON
+sia-code memory export memory-backup.json
+
+# Import from JSON
+sia-code memory import memory-backup.json
+```
+
+---
+
+### `research` - Multi-Hop Exploration
+
+Perform multi-hop code exploration (advanced feature).
+
+**Usage:**
+```bash
+sia-code research QUESTION [OPTIONS]
+```
+
+**Options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--hops N` | Maximum relationship hops | `2` |
+| `-k, --limit N` | Results per hop | `5` |
+| `--graph` | Show call graph visualization | `false` |
+| `--no-filter` | Include stale chunks | `false` |
 
 **Examples:**
 
@@ -577,11 +708,14 @@ sia-code research QUERY [OPTIONS]
 # Basic research
 sia-code research "authentication flow"
 
-# More hops
+# More hops for deeper analysis
 sia-code research "database connection" --hops 3
 
-# More expansion
-sia-code research "error handling" --expand 10
+# More results per hop
+sia-code research "error handling" --limit 10
+
+# Show call graph
+sia-code research "what calls the indexer?" --graph
 ```
 
 **How it works:**
@@ -639,6 +773,11 @@ sia-code research "error handling" --expand 10
     "enabled": true,
     "index_stubs": true,
     "languages": ["python", "typescript", "javascript"]
+  },
+  "summarization": {
+    "enabled": true,
+    "model": "google/flan-t5-base",
+    "max_commits": 20
   }
 }
 ```
