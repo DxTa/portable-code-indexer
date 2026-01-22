@@ -334,10 +334,11 @@ class IndexingCoordinator:
         Returns:
             List of file paths to index
         """
-        # Build gitignore-style spec
+        # Build gitignore-style spec (includes .gitignore patterns)
+        effective_patterns = self.config.indexing.get_effective_exclude_patterns(directory)
         spec = pathspec.PathSpec.from_lines(
             "gitwildmatch",
-            self.config.indexing.exclude_patterns,
+            effective_patterns,
         )
 
         files = []
@@ -348,10 +349,11 @@ class IndexingCoordinator:
                     rel_path = file_path.relative_to(directory)
                     if not spec.match_file(str(rel_path)):
                         # Check file size
-                        if (
-                            file_path.stat().st_size
-                            <= self.config.indexing.max_file_size_mb * 1024 * 1024
-                        ):
+                        file_size = file_path.stat().st_size
+                        # Skip empty files (0 bytes)
+                        if file_size == 0:
+                            continue
+                        if file_size <= self.config.indexing.max_file_size_mb * 1024 * 1024:
                             files.append(file_path)
 
         return files

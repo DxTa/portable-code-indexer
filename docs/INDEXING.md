@@ -59,6 +59,24 @@ def _should_index(self, file_path: Path) -> bool:
 - `venv/`, `.venv/`
 - `*.pyc`, `*.pyo`, `*.so`, `*.dylib`
 
+**Gitignore Integration (v0.3.0+):**
+Sia-code automatically loads patterns from `.gitignore` files and merges them with configured exclude patterns:
+- Supports root `.gitignore` and nested `.gitignore` files in subdirectories
+- Nested patterns are automatically prefixed with their relative directory path
+- Handles comments, negation patterns (`!`), and empty lines
+- Deduplicates patterns to avoid redundancy
+- No configuration required - works automatically if `.gitignore` exists
+
+Example:
+```
+# Root .gitignore
+*.log
+
+# src/.gitignore  
+*.tmp
+```
+Results in effective patterns: `*.log`, `src/*.tmp`
+
 **Default Include Patterns:**
 - `**/*` (all files, filtered by language detection)
 
