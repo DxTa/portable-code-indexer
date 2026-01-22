@@ -15,7 +15,7 @@ def create_backend(
 
     Args:
         path: Path to .sia-code directory
-        backend_type: 'auto', 'usearch', or 'memvid'
+        backend_type: 'auto' or 'usearch' (both use usearch)
         **kwargs: Backend-specific configuration
 
     Returns:
@@ -23,20 +23,11 @@ def create_backend(
 
     Raises:
         ValueError: If backend_type is unknown
-        FileNotFoundError: If auto-detection fails
     """
     # Auto-detect backend from existing files
     if backend_type == "auto":
-        vector_path = path / "vectors.usearch"
-        memvid_path = path / "index.mv2"
-
-        if vector_path.exists():
-            backend_type = "usearch"
-        elif memvid_path.exists():
-            backend_type = "memvid"
-        else:
-            # Default to usearch for new indexes
-            backend_type = "usearch"
+        # Always use usearch backend
+        backend_type = "usearch"
 
     # Create backend
     if backend_type == "usearch":
@@ -44,15 +35,8 @@ def create_backend(
 
         return UsearchSqliteBackend(path, **kwargs)
 
-    elif backend_type == "memvid":
-        from .backend import MemvidBackend
-
-        # Note: MemvidBackend expects .mv2 file path, not directory
-        memvid_path = path / "index.mv2"
-        return MemvidBackend(memvid_path, **kwargs)
-
     else:
-        raise ValueError(f"Unknown backend type: {backend_type}")
+        raise ValueError(f"Unknown backend type: {backend_type}. Only 'usearch' is supported.")
 
 
 def get_backend_type(path: Path) -> str:
@@ -62,14 +46,11 @@ def get_backend_type(path: Path) -> str:
         path: Path to .sia-code directory
 
     Returns:
-        'usearch', 'memvid', or 'none'
+        'usearch' or 'none'
     """
     vector_path = path / "vectors.usearch"
-    memvid_path = path / "index.mv2"
 
     if vector_path.exists():
         return "usearch"
-    elif memvid_path.exists():
-        return "memvid"
     else:
         return "none"

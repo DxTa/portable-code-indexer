@@ -13,7 +13,7 @@ from pathlib import Path
 from sia_code.indexer.coordinator import IndexingCoordinator
 from sia_code.indexer.hash_cache import HashCache
 from sia_code.indexer.chunk_index import ChunkIndex
-from sia_code.storage.backend import MemvidBackend
+from sia_code.storage.usearch_backend import UsearchSqliteBackend
 from sia_code.config import Config, ChunkingConfig
 
 
@@ -65,10 +65,10 @@ class LargeClass:
 @pytest.fixture
 def backends(tmp_path):
     """Create separate backends for v1 and v2."""
-    backend_v1 = MemvidBackend(tmp_path / "v1.mv2", embedding_enabled=False)
+    backend_v1 = UsearchSqliteBackend(tmp_path / "v1.sia-code", embedding_enabled=False)
     backend_v1.create_index()
 
-    backend_v2 = MemvidBackend(tmp_path / "v2.mv2", embedding_enabled=False)
+    backend_v2 = UsearchSqliteBackend(tmp_path / "v2.sia-code", embedding_enabled=False)
     backend_v2.create_index()
 
     yield {"v1": backend_v1, "v2": backend_v2}

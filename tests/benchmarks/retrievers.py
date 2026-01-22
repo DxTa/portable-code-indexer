@@ -51,14 +51,14 @@ class SiaCodeRetriever:
         if self._backend is not None:
             return
 
-        from sia_code.storage.backend import MemvidBackend
+        from sia_code.storage.usearch_backend import UsearchSqliteBackend
         from sia_code.search.multi_hop import MultiHopSearchStrategy
 
         # Open existing index
-        self._backend = MemvidBackend(
+        self._backend = UsearchSqliteBackend(
             path=self.index_path,
             embedding_enabled=True,
-            embedding_model="openai-small",
+            embedding_model="BAAI/bge-base-en-v1.5",
         )
         self._backend.open_index()
 

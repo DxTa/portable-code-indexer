@@ -61,11 +61,10 @@ def load_gitignore_patterns(root: Path) -> list[str]:
 class EmbeddingConfig(BaseModel):
     """Embedding configuration.
 
-    Supported models:
-    - OpenAI: "openai-small" (1536d), "openai-large" (3072d) - requires OPENAI_API_KEY
-    - HuggingFace/BGE (local, free): "bge-small" (384d), "bge-base" (768d), "bge-large" (1024d)
-    - Voyage (code-specific): "voyage-code-3" (1024d) - requires VOYAGE_API_KEY
-    - Cohere: "cohere" - requires COHERE_API_KEY
+    Supported models (local via sentence-transformers):
+    - BGE: "BAAI/bge-small-en-v1.5" (384d), "BAAI/bge-base-en-v1.5" (768d), "BAAI/bge-large-en-v1.5" (1024d)
+    - MiniLM: "sentence-transformers/all-MiniLM-L6-v2" (384d)
+    - Other HuggingFace models compatible with sentence-transformers
     """
 
     enabled: bool = True

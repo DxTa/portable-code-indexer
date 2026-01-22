@@ -82,39 +82,23 @@ def setup_logging(verbose: bool = False):
 def create_backend(index_path: Path, config: Config, valid_chunks=None):
     """Create storage backend with config-based embedding settings.
 
-    NOTE: This function maintains backward compatibility with memvid while supporting
-    the new usearch backend. It auto-detects the backend type based on existing files.
-
     Args:
-        index_path: Path to .sia-code directory (or .mv2 file for legacy memvid)
+        index_path: Path to .sia-code directory
         config: Sia Code configuration
-        valid_chunks: Optional set of valid chunk IDs for filtering (memvid only, ignored for usearch)
+        valid_chunks: Optional set of valid chunk IDs for filtering
 
     Returns:
         Configured StorageBackend instance
     """
     from .storage import factory
 
-    # If index_path is a .mv2 file (legacy), use memvid directly
-    if str(index_path).endswith(".mv2"):
-        from .storage.backend import MemvidBackend
-
-        return MemvidBackend(
-            path=index_path,
-            valid_chunks=valid_chunks,
-            embedding_enabled=config.embedding.enabled,
-            embedding_model=config.embedding.model,
-            api_key_env=config.embedding.api_key_env,
-        )
-
-    # Otherwise use factory with auto-detection
+    # Use factory with auto-detection (always UsearchSqliteBackend)
     return factory.create_backend(
         path=index_path,
         backend_type="auto",
         embedding_enabled=config.embedding.enabled,
         embedding_model=config.embedding.model,
         ndim=config.embedding.dimensions,
-        api_key_env=config.embedding.api_key_env,
         valid_chunks=valid_chunks,
     )
 
@@ -226,6 +210,11 @@ def init(path: str, dry_run: bool):
     default=2.0,
     help="Seconds to wait before reindexing after changes (default: 2.0)",
 )
+@click.option(
+    "--no-git-sync",
+    is_flag=True,
+    help="Skip git history sync (imports timeline events and changelogs)",
+)
 @click.pass_context
 def index(
     ctx: click.Context,
@@ -236,6 +225,7 @@ def index(
     workers: int | None,
     watch: bool,
     debounce: float,
+    no_git_sync: bool,
 ):
     """Index codebase for search."""
     # Get verbose flag from parent context
@@ -381,6 +371,26 @@ def index(
 
             # Close backend to persist vectors to disk
             backend.close()
+
+            # Auto-sync git history (unless disabled or in watch mode)
+            if not no_git_sync and not watch:
+                try:
+                    from .memory.git_sync import GitSyncService
+
+                    # Reopen backend for git sync
+                    backend.open_index()
+                    sync_service = GitSyncService(backend, Path(path))
+                    sync_stats = sync_service.sync(since="HEAD~100", limit=50)
+
+                    # Display brief sync summary
+                    if sync_stats["total_added"] > 0:
+                        console.print(
+                            f"\n[dim]Git sync: +{sync_stats['changelogs_added']} changelogs, "
+                            f"+{sync_stats['timeline_added']} timeline events[/dim]"
+                        )
+                    backend.close()
+                except Exception as e:
+                    console.print(f"[dim][yellow]Git sync skipped: {e}[/yellow][/dim]")
 
         except Exception as e:
             console.print(f"[red]Error during indexing: {e}[/red]")
@@ -937,14 +947,16 @@ def status():
     sia_dir, config = require_initialized()
 
     backend = create_backend(sia_dir, config)
+    backend.open_index()
     stats = backend.get_stats()
 
     table = Table(title="Sia Code Index Status")
     table.add_column("Property", style="cyan")
     table.add_column("Value", style="green")
 
-    table.add_row("Index Path", str(stats["path"]))
-    table.add_row("Exists", "Yes" if stats["exists"] else "No")
+    table.add_row("Index Path", str(sia_dir))
+    table.add_row("Total Files", f"{stats.total_files:,}")
+    table.add_row("Total Chunks", f"{stats.total_chunks:,}")
 
     # Cache statistics
     cache_path = sia_dir / "cache" / "file_hashes.json"
@@ -1162,6 +1174,677 @@ def config_edit():
     except FileNotFoundError:
         console.print(f"[red]Error: Editor '{editor}' not found[/red]")
         console.print("[dim]Set $EDITOR environment variable or install nano[/dim]")
+        sys.exit(1)
+
+
+@config.command(name="get")
+@click.argument("key")
+def config_get(key: str):
+    """Get a configuration value.
+
+    Example: sia-code config get search.vector_weight
+    """
+    sia_dir, cfg = require_initialized()
+
+    # Navigate nested keys (e.g., "search.vector_weight")
+    parts = key.split(".")
+    value = cfg.model_dump()
+
+    try:
+        for part in parts:
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                console.print(f"[red]Unknown key: {key}[/red]")
+                sys.exit(1)
+
+        # Pretty print the value
+        import json
+
+        console.print(json.dumps(value, indent=2))
+    except Exception as e:
+        console.print(f"[red]Error getting config value: {e}[/red]")
+        sys.exit(1)
+
+
+@config.command(name="set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key: str, value: str):
+    """Set a configuration value.
+
+    Example: sia-code config set search.vector_weight 0.0
+    """
+    sia_dir, cfg = require_initialized()
+    config_path = sia_dir / "config.json"
+
+    # Parse value type (int, float, bool, or string)
+    parsed_value = _parse_config_value(value)
+
+    # Update nested key
+    data = cfg.model_dump()
+    parts = key.split(".")
+
+    try:
+        _set_nested(data, parts, parsed_value)
+
+        # Validate and save
+        new_cfg = Config.model_validate(data)
+        new_cfg.save(config_path)
+        console.print(f"[green]✓[/green] Set {key} = {parsed_value}")
+    except Exception as e:
+        console.print(f"[red]Error setting config value: {e}[/red]")
+        sys.exit(1)
+
+
+def _parse_config_value(value: str):
+    """Parse config value from string to appropriate type."""
+    # Try bool
+    if value.lower() in ("true", "yes", "1"):
+        return True
+    elif value.lower() in ("false", "no", "0"):
+        return False
+
+    # Try int
+    try:
+        return int(value)
+    except ValueError:
+        pass
+
+    # Try float
+    try:
+        return float(value)
+    except ValueError:
+        pass
+
+    # Default to string
+    return value
+
+
+def _set_nested(data: dict, keys: list[str], value):
+    """Set nested dictionary value."""
+    for key in keys[:-1]:
+        if key not in data:
+            console.print(f"[red]Unknown key path: {'.'.join(keys)}[/red]")
+            sys.exit(1)
+        data = data[key]
+
+    if keys[-1] not in data:
+        console.print(f"[red]Unknown key: {keys[-1]}[/red]")
+        sys.exit(1)
+
+    data[keys[-1]] = value
+
+
+@main.group()
+def memory():
+    """Manage project memory (decisions, timeline, changelogs)."""
+    pass
+
+
+@memory.command(name="sync-git")
+@click.option("--since", default="HEAD~100", help="Git ref to start from (e.g., v1.0.0, HEAD~50)")
+@click.option("--limit", type=int, default=50, help="Maximum events to process")
+@click.option("--dry-run", is_flag=True, help="Preview without importing")
+@click.option("--tags-only", is_flag=True, help="Only scan tags, skip merge commits")
+@click.option("--merges-only", is_flag=True, help="Only scan merge commits, skip tags")
+@click.option(
+    "--min-importance",
+    type=click.Choice(["high", "medium", "low"]),
+    default="low",
+    help="Minimum importance level to import",
+)
+def memory_sync_git(since, limit, dry_run, tags_only, merges_only, min_importance):
+    """Import timeline events and changelogs from git history.
+
+    Scans git tags for changelogs and merge commits for timeline events.
+    Automatically deduplicates to prevent importing the same event twice.
+    """
+    from .memory.git_sync import GitSyncService
+
+    sia_dir, config = require_initialized()
+
+    # Check if in a git repository
+    if not Path(".git").exists():
+        console.print("[red]Error: Not a git repository[/red]")
+        console.print("[dim]Run this command from a git repository root[/dim]")
+        sys.exit(1)
+
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        console.print(f"[cyan]Syncing git history from {since}...[/cyan]\n")
+
+        sync_service = GitSyncService(backend, Path("."))
+        stats = sync_service.sync(
+            since=since,
+            limit=limit,
+            dry_run=dry_run,
+            tags_only=tags_only,
+            merges_only=merges_only,
+            min_importance=min_importance,
+        )
+
+        # Display results
+        console.print("[bold]Summary:[/bold]")
+        console.print(
+            f"  Changelogs: {stats['changelogs_added']} added, {stats['changelogs_skipped']} skipped"
+        )
+        console.print(
+            f"  Timeline:   {stats['timeline_added']} added, {stats['timeline_skipped']} skipped"
+        )
+
+        if stats["errors"]:
+            console.print("\n[yellow]Warnings:[/yellow]")
+            for error in stats["errors"]:
+                console.print(f"  {error}")
+
+        if dry_run:
+            console.print("\n[yellow]Dry run complete. No changes made.[/yellow]")
+        else:
+            console.print(f"\n[green]✓[/green] Imported {stats['total_added']} items")
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error during git sync: {e}[/red]")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+
+
+@memory.command(name="add-decision")
+@click.argument("title")
+@click.option("--description", "-d", required=True, help="Full description")
+@click.option("--reasoning", "-r", help="Why this decision was made")
+@click.option("--alternatives", "-a", help="Comma-separated list of alternatives considered")
+def memory_add_decision(title, description, reasoning, alternatives):
+    """Add a pending technical decision.
+
+    Example: sia-code memory add-decision "Use PostgreSQL" -d "Need ACID compliance" -r "Better than MySQL for our use case"
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        # Parse alternatives
+        alt_list = []
+        if alternatives:
+            for alt in alternatives.split(","):
+                alt_list.append({"option": alt.strip()})
+
+        # Get session ID (simple timestamp-based)
+        import datetime
+
+        session_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        decision_id = backend.add_decision(
+            session_id=session_id,
+            title=title,
+            description=description,
+            reasoning=reasoning,
+            alternatives=alt_list,
+        )
+
+        console.print(f"[green]✓[/green] Created decision #{decision_id}: {title}")
+        console.print("[dim]Use 'sia-code memory approve {decision_id}' to approve[/dim]")
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error adding decision: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="list")
+@click.option(
+    "--type",
+    "item_type",
+    type=click.Choice(["decision", "timeline", "changelog", "all"]),
+    default="all",
+    help="Type of items to list",
+)
+@click.option(
+    "--status",
+    type=click.Choice(["pending", "approved", "rejected", "all"]),
+    default="all",
+    help="Filter decisions by status",
+)
+@click.option("--limit", type=int, default=20, help="Maximum items to show")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json", "table"]),
+    default="text",
+    help="Output format",
+)
+def memory_list(item_type, status, limit, output_format):
+    """List memory items (decisions, timeline, changelogs)."""
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        results = {"decisions": [], "timeline": [], "changelogs": []}
+
+        # Fetch decisions
+        if item_type in ("decision", "all"):
+            if status == "pending":
+                results["decisions"] = backend.list_pending_decisions(limit=limit)
+            else:
+                # Get all decisions (pending + approved)
+                results["decisions"] = backend.list_pending_decisions(limit=limit * 2)
+                if status != "all":
+                    results["decisions"] = [d for d in results["decisions"] if d.status == status]
+
+        # Fetch timeline events
+        if item_type in ("timeline", "all"):
+            results["timeline"] = backend.get_timeline_events(limit=limit)
+
+        # Fetch changelogs
+        if item_type in ("changelog", "all"):
+            results["changelogs"] = backend.get_changelogs(limit=limit)
+
+        # Output
+        if output_format == "json":
+            import json
+
+            output = {}
+            if results["decisions"]:
+                output["decisions"] = [d.to_dict() for d in results["decisions"]]
+            if results["timeline"]:
+                output["timeline"] = [t.to_dict() for t in results["timeline"]]
+            if results["changelogs"]:
+                output["changelogs"] = [c.to_dict() for c in results["changelogs"]]
+            console.print(json.dumps(output, indent=2))
+
+        elif output_format == "table":
+            if results["decisions"]:
+                table = Table(title="Decisions")
+                table.add_column("ID", style="cyan")
+                table.add_column("Title")
+                table.add_column("Status")
+                for d in results["decisions"]:
+                    table.add_row(str(d.id), d.title, d.status)
+                console.print(table)
+
+            if results["timeline"]:
+                table = Table(title="Timeline Events")
+                table.add_column("Type", style="cyan")
+                table.add_column("From → To")
+                table.add_column("Summary")
+                for t in results["timeline"]:
+                    table.add_row(t.event_type, f"{t.from_ref} → {t.to_ref}", t.summary[:50])
+                console.print(table)
+
+            if results["changelogs"]:
+                table = Table(title="Changelogs")
+                table.add_column("Tag", style="cyan")
+                table.add_column("Version")
+                table.add_column("Summary")
+                for c in results["changelogs"]:
+                    table.add_row(c.tag, c.version or "N/A", c.summary[:50])
+                console.print(table)
+
+        else:  # text format
+            if results["decisions"]:
+                console.print("[bold]Decisions:[/bold]")
+                for d in results["decisions"]:
+                    console.print(f"  #{d.id} [{d.status}] {d.title}")
+                console.print()
+
+            if results["timeline"]:
+                console.print("[bold]Timeline Events:[/bold]")
+                for t in results["timeline"]:
+                    console.print(f"  [{t.event_type}] {t.from_ref} → {t.to_ref}: {t.summary[:60]}")
+                console.print()
+
+            if results["changelogs"]:
+                console.print("[bold]Changelogs:[/bold]")
+                for c in results["changelogs"]:
+                    console.print(f"  {c.tag} ({c.version or 'N/A'}): {c.summary[:60]}")
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error listing memory: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="approve")
+@click.argument("decision_id", type=int)
+@click.option(
+    "--category", "-c", required=True, help="Category (e.g., architecture, pattern, infrastructure)"
+)
+def memory_approve(decision_id, category):
+    """Approve a pending decision.
+
+    Example: sia-code memory approve 123 --category architecture
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        # Get decision to show what's being approved
+        decision = backend.get_decision(decision_id)
+        if not decision:
+            console.print(f"[red]Decision #{decision_id} not found[/red]")
+            sys.exit(1)
+
+        if decision.status != "pending":
+            console.print(f"[yellow]Decision #{decision_id} is already {decision.status}[/yellow]")
+            sys.exit(1)
+
+        # Approve
+        backend.approve_decision(decision_id, category)
+        console.print(f"[green]✓[/green] Approved decision #{decision_id}: {decision.title}")
+        console.print(f"[dim]Category: {category}[/dim]")
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error approving decision: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="reject")
+@click.argument("decision_id", type=int)
+def memory_reject(decision_id):
+    """Reject a pending decision.
+
+    Example: sia-code memory reject 123
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        decision = backend.get_decision(decision_id)
+        if not decision:
+            console.print(f"[red]Decision #{decision_id} not found[/red]")
+            sys.exit(1)
+
+        backend.reject_decision(decision_id)
+        console.print(f"[green]✓[/green] Rejected decision #{decision_id}: {decision.title}")
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error rejecting decision: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="search")
+@click.argument("query")
+@click.option(
+    "--type",
+    "search_type",
+    type=click.Choice(["decision", "timeline", "changelog", "all"]),
+    default="all",
+    help="Type of memory to search",
+)
+@click.option("-k", "--limit", type=int, default=10, help="Number of results")
+def memory_search(query, search_type, limit):
+    """Search project memory.
+
+    Example: sia-code memory search "why PostgreSQL" --type decision
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        # Use backend's search_memory method
+        results = backend.search_memory(query, k=limit)
+
+        if not results:
+            console.print("[yellow]No results found[/yellow]")
+        else:
+            console.print(f"[bold]Found {len(results)} results:[/bold]\n")
+            for i, result in enumerate(results, 1):
+                meta = result.chunk.metadata
+                console.print(f"{i}. {result.chunk.symbol} [score: {result.score:.2f}]")
+                console.print(f"   Type: {meta.get('type', 'unknown')}")
+                console.print(f"   {result.chunk.code[:100]}...")
+                console.print()
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error searching memory: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="timeline")
+@click.option("--since", type=str, help="Filter by date (YYYY-MM-DD)")
+@click.option(
+    "--event-type",
+    type=click.Choice(["merge", "tag", "major_change"]),
+    help="Filter by event type",
+)
+@click.option(
+    "--importance",
+    type=click.Choice(["high", "medium", "low"]),
+    help="Filter by importance",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json", "table", "markdown"]),
+    default="text",
+    help="Output format",
+)
+def memory_timeline(since, event_type, importance, output_format):
+    """Show project timeline events.
+
+    Example: sia-code memory timeline --format markdown --importance high
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        events = backend.get_timeline_events(limit=100)
+
+        # Apply filters
+        if event_type:
+            events = [e for e in events if e.event_type == event_type]
+        if importance:
+            events = [e for e in events if e.importance == importance]
+        if since:
+            from datetime import datetime
+
+            since_date = datetime.fromisoformat(since)
+            events = [e for e in events if e.created_at and e.created_at >= since_date]
+
+        # Output
+        if output_format == "json":
+            import json
+
+            console.print(json.dumps([e.to_dict() for e in events], indent=2))
+
+        elif output_format == "markdown":
+            console.print("# Project Timeline\n")
+            for e in events:
+                date_str = e.created_at.strftime("%Y-%m-%d") if e.created_at else "Unknown"
+                console.print(f"## {date_str} - {e.from_ref} → {e.to_ref}")
+                console.print(f"**Type:** {e.event_type} | **Importance:** {e.importance}\n")
+                console.print(f"{e.summary}\n")
+                if e.files_changed:
+                    console.print(f"**Files changed:** {len(e.files_changed)}\n")
+
+        elif output_format == "table":
+            table = Table(title="Project Timeline")
+            table.add_column("Date", style="cyan")
+            table.add_column("Type")
+            table.add_column("From → To")
+            table.add_column("Summary")
+            table.add_column("Importance")
+
+            for e in events:
+                date_str = e.created_at.strftime("%Y-%m-%d") if e.created_at else "Unknown"
+                table.add_row(
+                    date_str,
+                    e.event_type,
+                    f"{e.from_ref} → {e.to_ref}",
+                    e.summary[:40],
+                    e.importance,
+                )
+            console.print(table)
+
+        else:  # text
+            for e in events:
+                date_str = e.created_at.strftime("%Y-%m-%d %H:%M") if e.created_at else "Unknown"
+                console.print(f"[{e.importance.upper()}] {date_str}")
+                console.print(f"  {e.event_type}: {e.from_ref} → {e.to_ref}")
+                console.print(f"  {e.summary}")
+                console.print()
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error displaying timeline: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="changelog")
+@click.argument("range", required=False)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json", "markdown"]),
+    default="markdown",
+    help="Output format",
+)
+@click.option("-o", "--output", type=click.Path(), help="Save to file")
+def memory_changelog(range, output_format, output):
+    """Generate changelog from memory.
+
+    Example: sia-code memory changelog v1.0.0..v2.0.0 --format markdown -o CHANGELOG.md
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        changelogs = backend.get_changelogs(limit=100)
+
+        # Filter by range if provided
+        if range:
+            # Parse range (e.g., "v1.0.0..v2.0.0")
+            if ".." in range:
+                start, end = range.split("..")
+                # Filter changelogs between versions
+                changelogs = [c for c in changelogs if start <= (c.tag or "") <= end]
+
+        # Generate output
+        if output_format == "json":
+            import json
+
+            output_text = json.dumps([c.to_dict() for c in changelogs], indent=2)
+
+        elif output_format == "markdown":
+            lines = ["# Changelog\n"]
+            for c in changelogs:
+                date_str = c.date.strftime("%Y-%m-%d") if c.date else "Unknown"
+                lines.append(f"## {c.tag} ({date_str})\n")
+                if c.summary:
+                    lines.append(f"{c.summary}\n")
+                if c.breaking_changes:
+                    lines.append("### ⚠️ Breaking Changes\n")
+                    for bc in c.breaking_changes:
+                        lines.append(f"- {bc}")
+                    lines.append("")
+                if c.features:
+                    lines.append("### ✨ Features\n")
+                    for feat in c.features:
+                        lines.append(f"- {feat}")
+                    lines.append("")
+                if c.fixes:
+                    lines.append("### 🐛 Fixes\n")
+                    for fix in c.fixes:
+                        lines.append(f"- {fix}")
+                    lines.append("")
+                lines.append("")
+            output_text = "\n".join(lines)
+
+        else:  # text
+            lines = []
+            for c in changelogs:
+                date_str = c.date.strftime("%Y-%m-%d") if c.date else "Unknown"
+                lines.append(f"{c.tag} ({date_str})")
+                lines.append(f"  {c.summary}")
+                lines.append("")
+            output_text = "\n".join(lines)
+
+        # Output to file or console
+        if output:
+            Path(output).write_text(output_text)
+            console.print(f"[green]✓[/green] Changelog written to {output}")
+        else:
+            console.print(output_text)
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error generating changelog: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="export")
+@click.option(
+    "-o", "--output", type=click.Path(), default=".sia-code/memory.json", help="Output file"
+)
+def memory_export(output):
+    """Export memory to JSON file.
+
+    Example: sia-code memory export -o memory-backup.json
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        export_path = backend.export_memory(include_pending=True)
+
+        # Copy to specified output location if different
+        if output != export_path:
+            import shutil
+
+            shutil.copy(export_path, output)
+
+        console.print(f"[green]✓[/green] Memory exported to {output}")
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error exporting memory: {e}[/red]")
+        sys.exit(1)
+
+
+@memory.command(name="import")
+@click.option(
+    "-i",
+    "--input",
+    "input_file",
+    type=click.Path(exists=True),
+    default=".sia-code/memory.json",
+    help="Input file",
+)
+def memory_import(input_file):
+    """Import memory from JSON file.
+
+    Example: sia-code memory import -i memory-backup.json
+    """
+    sia_dir, config = require_initialized()
+    backend = create_backend(sia_dir, config)
+    backend.open_index()
+
+    try:
+        result = backend.import_memory(input_file)
+
+        console.print("[green]✓[/green] Import complete")
+        console.print(f"  Added: {result.added}")
+        console.print(f"  Updated: {result.updated}")
+        console.print(f"  Skipped: {result.skipped}")
+
+        backend.close()
+    except Exception as e:
+        console.print(f"[red]Error importing memory: {e}[/red]")
         sys.exit(1)
 
 

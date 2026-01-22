@@ -4,14 +4,14 @@ import pytest
 from pathlib import Path
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber
-from sia_code.storage.backend import MemvidBackend
+from sia_code.storage.usearch_backend import UsearchSqliteBackend
 
 
 @pytest.fixture
 def backend(tmp_path):
     """Create a temporary backend for testing."""
-    test_path = tmp_path / "test_index.mv2"
-    backend = MemvidBackend(test_path, embedding_enabled=False)
+    test_path = tmp_path / "test_index.sia-code"
+    backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
     backend.create_index()
     yield backend
     backend.close()
@@ -114,7 +114,8 @@ class TestTierFiltering:
 
     def test_include_deps_false_excludes_dependencies(self, backend_with_mixed_tiers):
         """With include_deps=False, only project chunks returned."""
-        results = backend_with_mixed_tiers.search_lexical("Service", k=10, include_deps=False)
+        # Search for "User" which matches "UserService" via prefix matching
+        results = backend_with_mixed_tiers.search_lexical("User", k=10, include_deps=False)
 
         # Should only find project chunks
         assert len(results) >= 1, "Should find at least one project chunk"

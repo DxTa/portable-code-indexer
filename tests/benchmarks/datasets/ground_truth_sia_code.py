@@ -34,7 +34,7 @@ GROUND_TRUTH_QUERIES = [
     # EASY: Simple symbol lookup
     GroundTruthQuery(
         query_id="gt-lookup-001",
-        query="Find the MemvidBackend class implementation",
+        query="Find the UsearchSqliteBackend class implementation",
         relevant_files=[
             "sia_code/storage/backend.py",
         ],

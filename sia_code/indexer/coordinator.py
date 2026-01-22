@@ -12,8 +12,8 @@ import pathspec
 from ..config import Config
 from ..core.types import Language
 from ..parser.chunker import CASTChunker, CASTConfig
-from ..storage.backend import MemvidBackend
 from ..storage.base import StorageBackend
+from ..storage.usearch_backend import UsearchSqliteBackend
 from .hash_cache import HashCache
 from .chunk_index import ChunkIndex
 from .metrics import PerformanceMetrics
@@ -526,16 +526,16 @@ class IndexingCoordinator:
         logger.info(f"Rebuilding index with {len(valid_chunks)} valid chunks...")
         logger.info(f"Removing {len(stale_chunks)} stale chunks...")
 
-        # Create new index file path
-        new_index_path = self.backend.path.parent / "index-new.mv2"
+        # Create new index directory path
+        new_index_path = self.backend.path.parent / ".sia-code-new"
         old_index_path = self.backend.path
 
         # Create new backend for new index (with same embedding config)
-        new_backend = MemvidBackend(
+        new_backend = UsearchSqliteBackend(
             path=new_index_path,
             embedding_enabled=self.backend.embedding_enabled,
             embedding_model=self.backend.embedding_model,
-            api_key_env=self.backend.api_key_env,
+            ndim=self.backend.ndim if hasattr(self.backend, "ndim") else 768,
         )
         new_backend.create_index()
 

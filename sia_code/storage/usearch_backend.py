@@ -201,8 +201,11 @@ class UsearchSqliteBackend(StorageBackend):
                 seen.add(t_lower)
                 unique.append(t)
 
+        # Add trailing wildcards for prefix matching (e.g., "Serv" matches "Service")
+        # Note: FTS5 doesn't support leading wildcards, so "*Service" won't work
         # Limit to 20 tokens for performance, join with OR for broader matching
-        return " OR ".join(unique[:20])
+        wildcarded = [f"{t}*" if len(t) >= 3 else t for t in unique[:20]]
+        return " OR ".join(wildcarded)
 
     def _make_timeline_key(self, timeline_id: int) -> str:
         """Create vector index key for timeline."""
@@ -260,7 +263,9 @@ class UsearchSqliteBackend(StorageBackend):
 
         # Load usearch index (memory-mapped for fast access)
         self.vector_index = Index(ndim=self.ndim, metric=MetricKind.Cos, dtype=self.dtype)
-        self.vector_index.view(str(self.vector_path))
+        # Only view if the file is not empty
+        if self.vector_path.stat().st_size > 0:
+            self.vector_index.view(str(self.vector_path))
 
         # Open SQLite database (check_same_thread=False for parallel search)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
@@ -633,13 +638,61 @@ class UsearchSqliteBackend(StorageBackend):
         # Limit to top 30 terms to avoid overwhelming the query
         return " ".join(unique_terms[:30])
 
-    def search_semantic(self, query: str, k: int = 10, filter_fn: Any = None) -> list[SearchResult]:
+    def _apply_tier_filtering(
+        self,
+        results: list[SearchResult],
+        k: int,
+        include_deps: bool = True,
+        tier_boost: dict | None = None,
+    ) -> list[SearchResult]:
+        """Apply tier filtering and boosting to search results.
+
+        Args:
+            results: Raw search results
+            k: Number of results to return
+            include_deps: Whether to include dependency tier
+            tier_boost: Score multipliers per tier
+
+        Returns:
+            Filtered and boosted results
+        """
+        if not results:
+            return results
+
+        # Default tier boost values
+        if tier_boost is None:
+            tier_boost = {"project": 1.0, "dependency": 0.7, "stdlib": 0.5}
+
+        # Apply tier boosting
+        for result in results:
+            tier = result.chunk.metadata.get("tier", "project")
+            result.score *= tier_boost.get(tier, 1.0)
+
+        # Filter by tier if needed
+        if not include_deps:
+            results = [r for r in results if r.chunk.metadata.get("tier", "project") == "project"]
+
+        # Re-sort by boosted score
+        results.sort(key=lambda r: r.score, reverse=True)
+
+        return results[:k]
+
+    def search_semantic(
+        self,
+        query: str,
+        k: int = 10,
+        filter_fn: Any = None,
+        include_deps: bool = True,
+        tier_boost: dict | None = None,
+    ) -> list[SearchResult]:
         """Semantic vector search using usearch HNSW.
 
         Args:
             query: Query text (will be embedded)
             k: Number of results to return
             filter_fn: Optional filter function (not implemented yet)
+            include_deps: Whether to include dependency tier chunks (default: True)
+            tier_boost: Score multipliers per tier (default: project=1.0, dep=0.7, stdlib=0.5)
 
         Returns:
             List of search results sorted by relevance
@@ -671,14 +724,19 @@ class UsearchSqliteBackend(StorageBackend):
                 score = 1.0 - float(distance)
                 results.append(SearchResult(chunk=chunk, score=score))
 
-        return results
+        # Apply tier filtering and boosting
+        return self._apply_tier_filtering(results, k, include_deps, tier_boost)
 
-    def search_lexical(self, query: str, k: int = 10) -> list[SearchResult]:
+    def search_lexical(
+        self, query: str, k: int = 10, include_deps: bool = True, tier_boost: dict | None = None
+    ) -> list[SearchResult]:
         """Lexical full-text search using SQLite FTS5.
 
         Args:
             query: Query text
             k: Number of results to return
+            include_deps: Whether to include dependency tier chunks (default: True)
+            tier_boost: Score multipliers per tier (default: project=1.0, dep=0.7, stdlib=0.5)
 
         Returns:
             List of search results sorted by relevance
@@ -712,7 +770,8 @@ class UsearchSqliteBackend(StorageBackend):
                 score = abs(float(row["rank"])) / 100.0  # Rough normalization
                 results.append(SearchResult(chunk=chunk, score=score))
 
-        return results
+        # Apply tier filtering and boosting
+        return self._apply_tier_filtering(results, k, include_deps, tier_boost)
 
     def search_hybrid(
         self,

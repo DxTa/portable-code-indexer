@@ -119,7 +119,7 @@ SIA_CODE_TASKS = [
             "sia_code/indexing/indexer.py",
         ],
         expected_concepts=[
-            "MemvidBackend wrapper",
+            "UsearchSqliteBackend wrapper",
             "Smart Frames serialization",
             "Vector embedding storage",
             "BM25 text search",

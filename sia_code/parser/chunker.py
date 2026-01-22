@@ -50,6 +50,10 @@ class CASTChunker:
         with open(file_path, "rb") as f:
             source_code = f.read()
 
+        # Skip empty files
+        if not source_code or len(source_code.strip()) == 0:
+            return []
+
         extractor = ConceptExtractor(language)
         concepts = extractor.extract_concepts(root, source_code)
 
@@ -67,6 +71,9 @@ class CASTChunker:
         """Convert concepts to chunks."""
         chunks = []
         for concept in concepts:
+            # Skip concepts with empty code
+            if not concept.code or not concept.code.strip():
+                continue
             chunks.append(
                 Chunk(
                     symbol=concept.symbol,
