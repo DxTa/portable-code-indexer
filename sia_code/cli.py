@@ -19,7 +19,7 @@ from rich.table import Table
 from . import __version__
 from .config import Config
 from .indexer.coordinator import IndexingCoordinator
-from .storage.backend import MemvidBackend
+from .storage.factory import create_backend, get_backend_type
 
 console = Console()
 
@@ -79,23 +79,43 @@ def setup_logging(verbose: bool = False):
     )
 
 
-def create_backend(index_path: Path, config: Config, valid_chunks=None) -> MemvidBackend:
-    """Create MemvidBackend with config-based embedding settings.
+def create_backend(index_path: Path, config: Config, valid_chunks=None):
+    """Create storage backend with config-based embedding settings.
+
+    NOTE: This function maintains backward compatibility with memvid while supporting
+    the new usearch backend. It auto-detects the backend type based on existing files.
 
     Args:
-        index_path: Path to index .mv2 file
+        index_path: Path to .sia-code directory (or .mv2 file for legacy memvid)
         config: Sia Code configuration
-        valid_chunks: Optional set of valid chunk IDs for filtering
+        valid_chunks: Optional set of valid chunk IDs for filtering (memvid only, ignored for usearch)
 
     Returns:
-        Configured MemvidBackend instance
+        Configured StorageBackend instance
     """
-    return MemvidBackend(
+    from .storage import factory
+
+    # If index_path is a .mv2 file (legacy), use memvid directly
+    if str(index_path).endswith(".mv2"):
+        from .storage.backend import MemvidBackend
+
+        return MemvidBackend(
+            path=index_path,
+            valid_chunks=valid_chunks,
+            embedding_enabled=config.embedding.enabled,
+            embedding_model=config.embedding.model,
+            api_key_env=config.embedding.api_key_env,
+        )
+
+    # Otherwise use factory with auto-detection
+    return factory.create_backend(
         path=index_path,
-        valid_chunks=valid_chunks,
+        backend_type="auto",
         embedding_enabled=config.embedding.enabled,
         embedding_model=config.embedding.model,
+        ndim=config.embedding.dimensions,
         api_key_env=config.embedding.api_key_env,
+        valid_chunks=valid_chunks,
     )
 
 
@@ -175,8 +195,9 @@ def init(path: str, dry_run: bool):
     config.save(sia_dir / "config.json")
 
     # Create empty index with embedding support
-    backend = create_backend(sia_dir / "index.mv2", config)
+    backend = create_backend(sia_dir, config)
     backend.create_index()
+    backend.close()  # Persist vector index to disk
 
     console.print(f"\n[green]✓[/green] Initialized Sia Code at {sia_dir}")
     console.print("[dim]Next: sia-code index [path][/dim]")
@@ -223,12 +244,12 @@ def index(
     sia_dir, config = require_initialized()
 
     # Handle --clean flag
-    backend = create_backend(sia_dir / "index.mv2", config)
+    backend = create_backend(sia_dir, config)
     if clean:
         console.print("[yellow]Cleaning existing index and cache...[/yellow]")
 
         # Remove index file
-        index_path = sia_dir / "index.mv2"
+        index_path = sia_dir
         if index_path.exists():
             index_path.unlink()
             console.print(f"  [dim]✓ Deleted: {index_path}[/dim]")
@@ -358,6 +379,9 @@ def index(
                 if len(stats["errors"]) > 5:
                     console.print(f"  ... and {len(stats['errors']) - 5} more")
 
+            # Close backend to persist vectors to disk
+            backend.close()
+
         except Exception as e:
             console.print(f"[red]Error during indexing: {e}[/red]")
             sys.exit(1)
@@ -471,7 +495,8 @@ def index(
 
 @main.command()
 @click.argument("query")
-@click.option("--regex", is_flag=True, help="Use regex/lexical search instead of semantic")
+@click.option("--regex", is_flag=True, help="Use regex/lexical search instead of hybrid")
+@click.option("--semantic-only", is_flag=True, help="Use semantic-only search (no BM25)")
 @click.option("-k", "--limit", type=int, default=10, help="Number of results")
 @click.option("--no-filter", is_flag=True, help="Disable stale chunk filtering")
 @click.option("--no-deps", is_flag=True, help="Exclude dependency code from results")
@@ -487,6 +512,7 @@ def index(
 def search(
     query: str,
     regex: bool,
+    semantic_only: bool,
     limit: int,
     no_filter: bool,
     no_deps: bool,
@@ -494,7 +520,7 @@ def search(
     output_format: str,
     output: str | None,
 ):
-    """Search the codebase."""
+    """Search the codebase (default: hybrid BM25 + semantic)."""
     from .indexer.chunk_index import ChunkIndex
 
     sia_dir, config = require_initialized()
@@ -515,7 +541,7 @@ def search(
         console.print("[red]Error: --no-deps and --deps-only are mutually exclusive[/red]")
         sys.exit(1)
 
-    backend = create_backend(sia_dir / "index.mv2", config, valid_chunks=valid_chunks)
+    backend = create_backend(sia_dir, config, valid_chunks=valid_chunks)
     backend.open_index()
 
     # Determine dependency filtering
@@ -525,7 +551,14 @@ def search(
     include_deps = not no_deps  # Exclude deps if --no-deps is set
     tier_boost = config.search.tier_boost if hasattr(config.search, "tier_boost") else None
 
-    mode = "lexical" if regex else "semantic"
+    # Determine search mode (NEW: hybrid by default)
+    if regex:
+        mode = "lexical"
+    elif semantic_only:
+        mode = "semantic"
+    else:
+        mode = "hybrid"  # NEW DEFAULT: BM25 + semantic
+
     filter_status = "" if no_filter or not valid_chunks else " [filtered]"
     deps_status = " [no-deps]" if no_deps else " [deps-only]" if deps_only else ""
 
@@ -533,13 +566,23 @@ def search(
     if output_format not in ("json", "csv"):
         console.print(f"[dim]Searching ({mode}{filter_status}{deps_status})...[/dim]")
 
+    # Execute search based on mode
     if regex:
         results = backend.search_lexical(
             query, k=limit, include_deps=include_deps, tier_boost=tier_boost
         )
-    else:
+    elif semantic_only:
         results = backend.search_semantic(
             query, k=limit, include_deps=include_deps, tier_boost=tier_boost
+        )
+    else:
+        # NEW: Hybrid search (BM25 + semantic) for best performance
+        results = backend.search_hybrid(
+            query,
+            k=limit,
+            vector_weight=config.search.vector_weight,
+            include_deps=include_deps,
+            tier_boost=tier_boost,
         )
 
     # Filter for --deps-only after search
@@ -688,7 +731,7 @@ def interactive(regex: bool, limit: int):
         except Exception:
             pass
 
-    backend = create_backend(sia_dir / "index.mv2", config, valid_chunks=valid_chunks)
+    backend = create_backend(sia_dir, config, valid_chunks=valid_chunks)
     backend.open_index()
 
     mode = "lexical" if regex else "semantic"
@@ -824,7 +867,7 @@ def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool)
             except Exception:
                 pass  # Silently fall back to no filtering
 
-    backend = create_backend(sia_dir / "index.mv2", config, valid_chunks=valid_chunks)
+    backend = create_backend(sia_dir, config, valid_chunks=valid_chunks)
     backend.open_index()
 
     strategy = MultiHopSearchStrategy(backend, max_hops=hops)
@@ -893,7 +936,7 @@ def status():
 
     sia_dir, config = require_initialized()
 
-    backend = create_backend(sia_dir / "index.mv2", config)
+    backend = create_backend(sia_dir, config)
     stats = backend.get_stats()
 
     table = Table(title="Sia Code Index Status")
@@ -916,7 +959,7 @@ def status():
             pass
 
     # Index age and size
-    index_path = sia_dir / "index.mv2"
+    index_path = sia_dir
     if index_path.exists():
         try:
             stat = index_path.stat()
@@ -1013,7 +1056,7 @@ def compact(path: str, threshold: float, force: bool):
     console.print(f"  Status: {summary.status}\n")
 
     # Load backend
-    backend = create_backend(sia_dir / "index.mv2", config)
+    backend = create_backend(sia_dir, config)
     backend.open_index()
 
     coordinator = IndexingCoordinator(config, backend)

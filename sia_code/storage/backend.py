@@ -75,28 +75,93 @@ class MemvidBackend:
         if self._embedder is not None:
             return self._embedder
 
-        # Lazy import to avoid dependency if not using embeddings
-        from memvid_sdk.embeddings import OpenAIEmbeddings
+        import logging
 
-        api_key = os.getenv(self.api_key_env)
-        if not api_key:
-            return None
+        logger = logging.getLogger(__name__)
 
-        # Map our model names to OpenAI SDK model names
-        model_map = {
-            "openai-small": "text-embedding-3-small",
-            "openai-large": "text-embedding-3-large",
-        }
-
-        openai_model = model_map.get(self.embedding_model, "text-embedding-3-small")
+        # Determine provider type from model name
+        model_lower = self.embedding_model.lower()
 
         try:
-            self._embedder = OpenAIEmbeddings(api_key=api_key, model=openai_model)
-        except Exception as e:
-            import logging
+            # HuggingFace / BGE models (local, no API key)
+            if "bge" in model_lower or "huggingface" in model_lower or "hf-" in model_lower:
+                from memvid_sdk.embeddings import HuggingFaceEmbeddings
 
-            logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to create embedder: {e}")
+                # Map shorthand model names to full HuggingFace model IDs
+                hf_model_map = {
+                    "bge-small": "BAAI/bge-small-en-v1.5",
+                    "bge-base": "BAAI/bge-base-en-v1.5",
+                    "bge-large": "BAAI/bge-large-en-v1.5",
+                }
+
+                hf_model = hf_model_map.get(self.embedding_model, self.embedding_model)
+                logger.info(f"Using HuggingFace embeddings with model: {hf_model}")
+                self._embedder = HuggingFaceEmbeddings(model=hf_model)
+
+            # Voyage embeddings (API-based, code-specific)
+            elif "voyage" in model_lower:
+                from memvid_sdk.embeddings import VoyageEmbeddings
+
+                api_key = os.getenv(self.api_key_env or "VOYAGE_API_KEY")
+                if not api_key:
+                    logger.warning("Voyage model specified but VOYAGE_API_KEY not found")
+                    return None
+
+                # Default to voyage-code-3 for code retrieval
+                voyage_model = "voyage-code-3" if "code" in model_lower else "voyage-3"
+                logger.info(f"Using Voyage embeddings with model: {voyage_model}")
+                self._embedder = VoyageEmbeddings(api_key=api_key, model=voyage_model)
+
+            # Cohere embeddings
+            elif "cohere" in model_lower:
+                from memvid_sdk.embeddings import CohereEmbeddings
+
+                api_key = os.getenv(self.api_key_env or "COHERE_API_KEY")
+                if not api_key:
+                    logger.warning("Cohere model specified but COHERE_API_KEY not found")
+                    return None
+
+                cohere_model = "embed-english-v3.0"
+                logger.info(f"Using Cohere embeddings with model: {cohere_model}")
+                self._embedder = CohereEmbeddings(api_key=api_key, model=cohere_model)
+
+            # OpenAI embeddings (default)
+            elif "openai" in model_lower:
+                from memvid_sdk.embeddings import OpenAIEmbeddings
+
+                api_key = os.getenv(self.api_key_env)
+                if not api_key:
+                    logger.warning("OpenAI model specified but OPENAI_API_KEY not found")
+                    return None
+
+                # Map our model names to OpenAI SDK model names
+                openai_model_map = {
+                    "openai-small": "text-embedding-3-small",
+                    "openai-large": "text-embedding-3-large",
+                }
+
+                openai_model = openai_model_map.get(self.embedding_model, "text-embedding-3-small")
+                logger.info(f"Using OpenAI embeddings with model: {openai_model}")
+                self._embedder = OpenAIEmbeddings(api_key=api_key, model=openai_model)
+
+            else:
+                # Unknown model - try as OpenAI fallback
+                from memvid_sdk.embeddings import OpenAIEmbeddings
+
+                api_key = os.getenv(self.api_key_env)
+                if not api_key:
+                    logger.warning(
+                        f"Unknown model '{self.embedding_model}', falling back to OpenAI but no API key found"
+                    )
+                    return None
+
+                logger.warning(
+                    f"Unknown model '{self.embedding_model}', falling back to OpenAI text-embedding-3-small"
+                )
+                self._embedder = OpenAIEmbeddings(api_key=api_key, model="text-embedding-3-small")
+
+        except Exception as e:
+            logger.warning(f"Failed to create embedder for model '{self.embedding_model}': {e}")
             return None
 
         return self._embedder
@@ -135,11 +200,21 @@ class MemvidBackend:
         else:
             return ChunkId(str(result))
 
-    def store_chunks_batch(self, chunks: list[Chunk]) -> list[ChunkId]:
+    def store_chunks_batch(
+        self, chunks: list[Chunk], vector_compression: bool = True
+    ) -> list[ChunkId]:
         """Store multiple chunks in a batch.
 
         Args:
             chunks: List of chunks to store
+            vector_compression: Enable 16x vector compression (default: True).
+
+                IMPORTANT: Compression only works with API-based embedding models.
+                - Supported: openai-small, openai-large, voyage-*, cohere-*
+                - Not supported: bge-small, bge-base, bge-large (local models)
+
+                For BGE models, compression is automatically disabled and batch mode is used.
+                This results in larger index (~100-200 MB) but allows using proven BGE embeddings.
 
         Returns:
             List of chunk IDs
@@ -166,14 +241,44 @@ class MemvidBackend:
                 }
             )
 
-        # Use embedder parameter for batch processing (10-15x faster than opts)
+        # Check if model supports compression via put() API
         embedder = self._get_embedder()
+        model_lower = self.embedding_model.lower()
+        is_api_model = any(provider in model_lower for provider in ["openai", "voyage", "cohere"])
 
-        if embedder:
-            # Batch embedding mode - much faster
+        if vector_compression and self.embedding_enabled and is_api_model:
+            # Individual put() calls for compression support (16x smaller vectors)
+            # Works with API-based models that memvid supports natively
+            frame_ids = []
+            for doc in docs:
+                fid = self.mem.put(
+                    text=doc["text"],
+                    title=doc["title"],
+                    label=doc["label"],
+                    metadata=doc["metadata"],
+                    uri=doc["uri"],
+                    enable_embedding=True,
+                    embedding_model=self.embedding_model,
+                    vector_compression=True,
+                )
+                frame_ids.append(fid)
+            self.mem.seal()  # Finalize batch
+        elif embedder and self.embedding_enabled:
+            # Batch mode with external embedder (BGE and other local models)
+            # Compression NOT available but embeddings work
+            if vector_compression and not hasattr(self, "_compression_warning_shown"):
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Vector compression not available with '{self.embedding_model}'. "
+                    f"Compression only works with API-based models (openai-*, voyage-*, cohere-*). "
+                    f"Using batch mode without compression. Index will be larger (~100-200 MB vs ~50 MB)."
+                )
+                self._compression_warning_shown = True  # Show warning only once
             frame_ids = self.mem.put_many(docs, embedder=embedder)
         else:
-            # No embeddings or embedder unavailable - use opts fallback
+            # No embeddings enabled
             frame_ids = self.mem.put_many(
                 docs,
                 opts={
@@ -181,7 +286,37 @@ class MemvidBackend:
                     "embedding_model": self.embedding_model,
                 },
             )
+        # Track chunks for auto-compaction (every 1,000 chunks)
+        if not hasattr(self, "_chunks_since_compact"):
+            self._chunks_since_compact = 0
+
+        self._chunks_since_compact += len(chunks)
+
+        # Auto-compact every 1,000 chunks to keep WAL size under control
+        if self._chunks_since_compact >= 1000:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.info(f"Auto-compacting after {self._chunks_since_compact} chunks")
+            self.seal()
+            self._chunks_since_compact = 0
+
         return [ChunkId(str(fid)) for fid in frame_ids]
+
+    def seal(self) -> None:
+        """Seal the index to finalize WAL and reduce storage.
+
+        This should be called periodically during indexing and at the end
+        to compact the Write-Ahead Log and reduce index size.
+        """
+        if self.mem is not None:
+            try:
+                self.mem.seal()
+            except Exception as e:
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to seal index: {e}")
 
     def _search_with_tier_boost(
         self,
@@ -214,7 +349,10 @@ class MemvidBackend:
 
         # Perform search with fallback for semantic/hybrid modes
         try:
-            results = self.mem.find(query, mode=mode, k=fetch_k, snippet_chars=200)
+            embedder = self._get_embedder() if self.embedding_enabled else None
+            results = self.mem.find(
+                query, mode=mode, k=fetch_k, snippet_chars=200, embedder=embedder
+            )
             converted = self._convert_and_filter_results(results, fetch_k)
         except Exception as e:
             # Fall back to lexical search if vector search fails

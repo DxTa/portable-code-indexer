@@ -13,9 +13,9 @@ from ..core.types import FilePath, Language, LineNumber
 class CASTConfig:
     """Configuration for cAST algorithm."""
 
-    max_chunk_size: int = 1200  # Non-whitespace characters
-    min_chunk_size: int = 50
-    merge_threshold: float = 0.8
+    max_chunk_size: int = 4000  # Non-whitespace characters (optimized for fewer chunks)
+    min_chunk_size: int = 200  # Increased to avoid tiny fragments
+    merge_threshold: float = 0.9  # More aggressive merging
     greedy_merge: bool = True
 
 

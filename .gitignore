@@ -63,4 +63,5 @@ dist/
 .chunkhound/
 
 # Documentation
-docs/
+!docs/
+results

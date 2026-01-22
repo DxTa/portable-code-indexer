@@ -67,7 +67,7 @@ class ConceptExtractor:
         return concepts
 
     def _extract_python_concepts(self, root: Node, source_code: bytes) -> list[UniversalConcept]:
-        """Extract Python-specific concepts."""
+        """Extract Python-specific concepts with full coverage."""
         concepts = []
 
         def traverse(node: Node, parent_class: str | None = None):
@@ -132,7 +132,117 @@ class ConceptExtractor:
                 traverse(child, parent_class)
 
         traverse(root)
+
+        # Ensure full coverage by filling gaps (matches JS/TS behavior)
+        concepts = self._fill_coverage_gaps(concepts, source_code)
+
         return concepts
+
+    def _fill_coverage_gaps(
+        self, concepts: list[UniversalConcept], source_code: bytes
+    ) -> list[UniversalConcept]:
+        """Fill gaps in coverage to ensure 100% of file is chunked.
+
+        Args:
+            concepts: Existing extracted concepts
+            source_code: Original source code
+
+        Returns:
+            Concepts with gaps filled
+        """
+        if not concepts:
+            # No concepts extracted - create one chunk for entire file
+            lines = source_code.decode("utf-8", errors="ignore").split("\n")
+            total_lines = len(lines)
+
+            if total_lines > 0:
+                return [
+                    UniversalConcept(
+                        concept_type=ConceptType.DEFINITION,
+                        chunk_type=ChunkType.UNKNOWN,
+                        symbol="module_content",
+                        start_line=LineNumber(1),
+                        end_line=LineNumber(total_lines),
+                        start_byte=ByteOffset(0),
+                        end_byte=ByteOffset(len(source_code)),
+                        code=source_code.decode("utf-8", errors="ignore"),
+                    )
+                ]
+            return []
+
+        # Sort concepts by start line
+        sorted_concepts = sorted(concepts, key=lambda c: c.start_line)
+
+        # Get total lines in file
+        lines = source_code.decode("utf-8", errors="ignore").split("\n")
+        total_lines = len(lines)
+
+        # Find gaps and create concepts for uncovered ranges
+        filled_concepts = []
+        current_line = 1
+
+        for concept in sorted_concepts:
+            # Check if there's a gap before this concept
+            if current_line < concept.start_line:
+                # Create concept for the gap
+                gap_start_line = current_line
+                gap_end_line = concept.start_line - 1
+
+                # Extract code for the gap
+                gap_code_lines = lines[gap_start_line - 1 : gap_end_line]
+                gap_code = "\n".join(gap_code_lines)
+
+                # Only create gap chunk if it has non-whitespace content
+                if gap_code.strip():
+                    # Calculate byte offsets (approximate)
+                    gap_start_byte = sum(len(line) + 1 for line in lines[: gap_start_line - 1])
+                    gap_end_byte = sum(len(line) + 1 for line in lines[:gap_end_line])
+
+                    filled_concepts.append(
+                        UniversalConcept(
+                            concept_type=ConceptType.DEFINITION,
+                            chunk_type=ChunkType.UNKNOWN,
+                            symbol=f"module_gap_{gap_start_line}_{gap_end_line}",
+                            start_line=LineNumber(gap_start_line),
+                            end_line=LineNumber(gap_end_line),
+                            start_byte=ByteOffset(gap_start_byte),
+                            end_byte=ByteOffset(gap_end_byte),
+                            code=gap_code,
+                        )
+                    )
+
+            # Add the concept itself
+            filled_concepts.append(concept)
+
+            # Update current line to after this concept
+            current_line = max(current_line, concept.end_line + 1)
+
+        # Check if there's a gap at the end of the file
+        if current_line <= total_lines:
+            gap_start_line = current_line
+            gap_end_line = total_lines
+
+            gap_code_lines = lines[gap_start_line - 1 : gap_end_line]
+            gap_code = "\n".join(gap_code_lines)
+
+            if gap_code.strip():
+                gap_start_byte = sum(len(line) + 1 for line in lines[: gap_start_line - 1])
+                gap_end_byte = len(source_code)
+
+                filled_concepts.append(
+                    UniversalConcept(
+                        concept_type=ConceptType.DEFINITION,
+                        chunk_type=ChunkType.UNKNOWN,
+                        symbol=f"module_gap_{gap_start_line}_{gap_end_line}",
+                        start_line=LineNumber(gap_start_line),
+                        end_line=LineNumber(gap_end_line),
+                        start_byte=ByteOffset(gap_start_byte),
+                        end_byte=ByteOffset(gap_end_byte),
+                        code=gap_code,
+                    )
+                )
+
+        return filled_concepts
 
     def _extract_javascript_concepts(
         self, root: Node, source_code: bytes
@@ -283,6 +393,10 @@ class ConceptExtractor:
                 traverse(child, parent_class)
 
         traverse(root)
+
+        # NEW: Ensure full coverage by filling gaps
+        concepts = self._fill_coverage_gaps(concepts, source_code)
+
         return concepts
 
     def _extract_generic_concepts(self, root: Node, source_code: bytes) -> list[UniversalConcept]:

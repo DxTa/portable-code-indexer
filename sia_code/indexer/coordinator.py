@@ -13,6 +13,7 @@ from ..config import Config
 from ..core.types import Language
 from ..parser.chunker import CASTChunker, CASTConfig
 from ..storage.backend import MemvidBackend
+from ..storage.base import StorageBackend
 from .hash_cache import HashCache
 from .chunk_index import ChunkIndex
 from .metrics import PerformanceMetrics
@@ -56,7 +57,7 @@ def _chunk_file_worker(
 class IndexingCoordinator:
     """Coordinates the indexing process."""
 
-    def __init__(self, config: Config, backend: MemvidBackend):
+    def __init__(self, config: Config, backend: StorageBackend):
         """Initialize coordinator.
 
         Args:
@@ -213,6 +214,13 @@ class IndexingCoordinator:
         metrics.finish()
         stats["metrics"] = metrics.to_dict()
         logger.info(f"Indexing complete: {metrics}")
+
+        # Final seal to compact WAL and reduce index size
+        try:
+            self.backend.seal()
+            logger.info("Index sealed successfully")
+        except Exception as e:
+            logger.warning(f"Failed to seal index: {e}")
 
         return stats
 
@@ -521,8 +529,6 @@ class IndexingCoordinator:
         old_index_path = self.backend.path
 
         # Create new backend for new index (with same embedding config)
-        from ..storage.backend import MemvidBackend
-
         new_backend = MemvidBackend(
             path=new_index_path,
             embedding_enabled=self.backend.embedding_enabled,

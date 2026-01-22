@@ -7,13 +7,20 @@ from pydantic import BaseModel, Field
 
 
 class EmbeddingConfig(BaseModel):
-    """Embedding configuration."""
+    """Embedding configuration.
+
+    Supported models:
+    - OpenAI: "openai-small" (1536d), "openai-large" (3072d) - requires OPENAI_API_KEY
+    - HuggingFace/BGE (local, free): "bge-small" (384d), "bge-base" (768d), "bge-large" (1024d)
+    - Voyage (code-specific): "voyage-code-3" (1024d) - requires VOYAGE_API_KEY
+    - Cohere: "cohere" - requires COHERE_API_KEY
+    """
 
     enabled: bool = True
-    provider: str = "openai"  # "openai", "ollama", or "local"
-    model: str = "openai-small"  # "openai-small", "openai-large", or "bge-small"
+    provider: str = "openai"  # Deprecated - provider auto-detected from model name
+    model: str = "openai-small"  # Model name (see supported models above)
     api_key_env: str = "OPENAI_API_KEY"  # Environment variable for API key
-    dimensions: int = 1536  # Embedding dimensions (1536 for openai-small, 3072 for openai-large)
+    dimensions: int = 1536  # Embedding dimensions (auto-detected for most models)
 
 
 class IndexingConfig(BaseModel):
@@ -52,6 +59,9 @@ class SearchConfig(BaseModel):
     default_limit: int = 10
     multi_hop_enabled: bool = True
     max_hops: int = 2
+    vector_weight: float = (
+        0.7  # Weight for vector search in hybrid (0.0=lexical only, 1.0=semantic only)
+    )
     # Configurable tier boosting for search results
     tier_boost: dict[str, float] = Field(
         default_factory=lambda: {
