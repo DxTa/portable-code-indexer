@@ -6,7 +6,9 @@ import signal
 import socket
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,7 @@ class EmbedDaemon:
 
     Features:
     - Lazy model loading (loads on first request)
+    - Auto-unload after idle timeout (default: 1 hour)
     - Thread pool for concurrent requests
     - Graceful shutdown on SIGTERM
     - Unix socket communication
@@ -39,6 +42,7 @@ class EmbedDaemon:
         socket_path: str = "/tmp/sia-embed.sock",
         pid_path: str = "/tmp/sia-embed.pid",
         log_path: str | None = None,
+        idle_timeout_seconds: int = 3600,  # 1 hour default
     ):
         """Initialize daemon.
 
@@ -46,13 +50,16 @@ class EmbedDaemon:
             socket_path: Path to Unix socket
             pid_path: Path to PID file
             log_path: Path to log file (None = stderr)
+            idle_timeout_seconds: Unload model after this many seconds of inactivity (default: 3600 = 1 hour)
         """
         self.socket_path = Path(socket_path)
         self.pid_path = Path(pid_path)
         self.log_path = Path(log_path) if log_path else None
+        self.idle_timeout_seconds = idle_timeout_seconds
 
         # Model storage (lazy-loaded)
         self.models: dict[str, Any] = {}
+        self.model_last_used: dict[str, datetime] = {}  # Track last use time
         self.device: str = "cpu"  # Will be set on first model load
 
         # Thread pool for concurrent requests
@@ -61,14 +68,55 @@ class EmbedDaemon:
         # Shutdown flag
         self.shutdown_flag = threading.Event()
 
+        # Model lock for thread-safe access
+        self.model_lock = threading.Lock()
+
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
+
+        # Start cleanup thread
+        self.cleanup_thread = threading.Thread(target=self._cleanup_idle_models, daemon=True)
+        self.cleanup_thread.start()
 
     def _signal_handler(self, signum, frame):
         """Handle shutdown signals."""
         logger.info(f"Received signal {signum}, shutting down...")
         self.shutdown_flag.set()
+
+    def _cleanup_idle_models(self):
+        """Background thread to unload idle models.
+
+        Runs every 10 minutes and unloads models that haven't been used
+        for more than idle_timeout_seconds.
+        """
+        while not self.shutdown_flag.is_set():
+            try:
+                # Sleep for 10 minutes (or until shutdown)
+                if self.shutdown_flag.wait(timeout=600):  # 10 minutes
+                    break
+
+                # Check for idle models
+                now = datetime.now()
+                with self.model_lock:
+                    models_to_unload = []
+
+                    for model_name, last_used in self.model_last_used.items():
+                        idle_time = (now - last_used).total_seconds()
+                        if idle_time > self.idle_timeout_seconds:
+                            models_to_unload.append((model_name, idle_time))
+
+                    # Unload idle models
+                    for model_name, idle_time in models_to_unload:
+                        if model_name in self.models:
+                            logger.info(
+                                f"Unloading idle model: {model_name} (idle for {idle_time / 60:.1f} minutes)"
+                            )
+                            del self.models[model_name]
+                            # Keep last_used timestamp so we know it was used before
+
+            except Exception as e:
+                logger.error(f"Error in cleanup thread: {e}", exc_info=True)
 
     def _load_model(self, model_name: str) -> Any:
         """Lazy-load embedding model.
@@ -79,25 +127,29 @@ class EmbedDaemon:
         Returns:
             SentenceTransformer model
         """
-        if model_name not in self.models:
-            logger.info(f"Loading model: {model_name}")
+        with self.model_lock:
+            # Update last used time
+            self.model_last_used[model_name] = datetime.now()
 
-            # Import here to avoid loading if not needed
-            from sentence_transformers import SentenceTransformer
-            import torch
+            if model_name not in self.models:
+                logger.info(f"Loading model: {model_name}")
 
-            # Auto-detect device on first load
-            if not self.models:  # First model
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
-                logger.info(f"Using device: {self.device}")
+                # Import here to avoid loading if not needed
+                from sentence_transformers import SentenceTransformer
+                import torch
 
-            # Load model
-            model = SentenceTransformer(model_name, device=self.device)
-            self.models[model_name] = model
+                # Auto-detect device on first load
+                if not self.models:  # First model
+                    self.device = "cuda" if torch.cuda.is_available() else "cpu"
+                    logger.info(f"Using device: {self.device}")
 
-            logger.info(f"Model loaded: {model_name} ({len(self.models)} total)")
+                # Load model
+                model = SentenceTransformer(model_name, device=self.device)
+                self.models[model_name] = model
 
-        return self.models[model_name]
+                logger.info(f"Model loaded: {model_name} ({len(self.models)} total)")
+
+            return self.models[model_name]
 
     def _handle_embed(self, model: str, texts: list[str]) -> dict:
         """Handle embedding request.
@@ -133,12 +185,25 @@ class EmbedDaemon:
         process = psutil.Process(os.getpid())
         memory_mb = process.memory_info().rss / 1024 / 1024
 
-        return {
-            "status": "ok",
-            "models_loaded": list(self.models.keys()),
-            "memory_mb": round(memory_mb, 2),
-            "device": self.device if self.models else "not initialized",
-        }
+        with self.model_lock:
+            # Calculate idle times
+            idle_info = {}
+            now = datetime.now()
+            for model_name, last_used in self.model_last_used.items():
+                idle_seconds = (now - last_used).total_seconds()
+                idle_info[model_name] = {
+                    "loaded": model_name in self.models,
+                    "idle_minutes": round(idle_seconds / 60, 1),
+                }
+
+            return {
+                "status": "ok",
+                "models_loaded": list(self.models.keys()),
+                "memory_mb": round(memory_mb, 2),
+                "device": self.device if self.models else "not initialized",
+                "idle_timeout_minutes": round(self.idle_timeout_seconds / 60, 1),
+                "model_status": idle_info,
+            }
 
     def _handle_connection(self, conn: socket.socket):
         """Handle a single client connection.
@@ -271,6 +336,7 @@ def start_daemon(
     pid_path: str = "/tmp/sia-embed.pid",
     log_path: str | None = None,
     foreground: bool = False,
+    idle_timeout_seconds: int = 3600,
 ):
     """Start the embedding daemon.
 
@@ -279,6 +345,7 @@ def start_daemon(
         pid_path: Path to PID file
         log_path: Path to log file (None = stderr)
         foreground: Run in foreground (don't daemonize)
+        idle_timeout_seconds: Unload model after this many seconds of inactivity
     """
     # Setup logging
     logging.basicConfig(
@@ -306,7 +373,7 @@ def start_daemon(
             sys.stderr = open(os.devnull, "w")
 
     # Start daemon
-    daemon = EmbedDaemon(socket_path, pid_path, log_path)
+    daemon = EmbedDaemon(socket_path, pid_path, log_path, idle_timeout_seconds)
     daemon.serve()
 
 

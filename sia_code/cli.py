@@ -1860,20 +1860,31 @@ def embed():
 @embed.command(name="start")
 @click.option("--foreground", is_flag=True, help="Run in foreground (don't daemonize)")
 @click.option("--log", type=click.Path(), help="Log file path (default: stderr)")
-def embed_start(foreground, log):
+@click.option(
+    "--idle-timeout",
+    type=int,
+    default=3600,
+    help="Unload model after N seconds of inactivity (default: 3600 = 1 hour)",
+)
+def embed_start(foreground, log, idle_timeout):
     """Start the embedding server daemon.
 
     The daemon loads embedding models on-demand and shares them across
     all sia-code sessions, reducing memory usage and startup time.
 
+    Models are automatically unloaded after idle timeout (default: 1 hour)
+    to save memory, and reloaded on next request.
+
     Example: sia-code embed start
+    Example: sia-code embed start --idle-timeout 7200  # 2 hours
     """
     from .embed_server.daemon import start_daemon
 
     console.print("[cyan]Starting embedding server...[/cyan]")
+    console.print(f"[dim]Idle timeout: {idle_timeout}s ({idle_timeout / 60:.0f} minutes)[/dim]")
 
     try:
-        start_daemon(foreground=foreground, log_path=log)
+        start_daemon(foreground=foreground, log_path=log, idle_timeout_seconds=idle_timeout)
         if not foreground:
             console.print("[green]✓[/green] Embedding server started")
             console.print("[dim]Use 'sia-code embed status' to check health[/dim]")
@@ -1899,7 +1910,8 @@ def embed_stop():
 
 
 @embed.command(name="status")
-def embed_status():
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed model status")
+def embed_status(verbose):
     """Show embedding server status.
 
     Displays:
@@ -1907,8 +1919,11 @@ def embed_status():
     - Loaded models
     - Memory usage
     - Device (CPU/GPU)
+    - Idle timeout
+    - Model idle times (with --verbose)
 
     Example: sia-code embed status
+    Example: sia-code embed status -v
     """
     from .embed_server.daemon import daemon_status
 
@@ -1921,12 +1936,23 @@ def embed_status():
         console.print(f"  PID: {status['pid']}")
         console.print(f"  Device: {health.get('device', 'unknown')}")
         console.print(f"  Memory: {health.get('memory_mb', 0):.1f} MB")
+        console.print(f"  Idle timeout: {health.get('idle_timeout_minutes', 60):.0f} minutes")
 
         models = health.get("models_loaded", [])
         if models:
             console.print(f"  Models loaded: {', '.join(models)}")
         else:
             console.print("  Models loaded: none (will load on first request)")
+
+        # Verbose: Show model status details
+        if verbose:
+            model_status = health.get("model_status", {})
+            if model_status:
+                console.print("\n  [bold]Model Status:[/bold]")
+                for model_name, info in model_status.items():
+                    loaded = "✓ loaded" if info.get("loaded") else "✗ unloaded"
+                    idle_min = info.get("idle_minutes", 0)
+                    console.print(f"    {model_name}: {loaded}, idle {idle_min:.1f}m")
     else:
         console.print("[red]● Embedding server is not running[/red]")
         if "reason" in status:
