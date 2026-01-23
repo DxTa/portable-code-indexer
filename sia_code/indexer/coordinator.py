@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 import time
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable
 
@@ -602,7 +603,7 @@ class IndexingCoordinator:
 
             # Delete backup after successful swap
             if backup_path.exists():
-                backup_path.unlink()
+                shutil.rmtree(backup_path)
 
             logger.info("Index compaction complete - swapped to new index")
 
@@ -610,6 +611,8 @@ class IndexingCoordinator:
             logger.error(f"Failed to swap index: {e}")
             # Rollback: restore backup if it exists
             if backup_path.exists():
+                if old_index_path.exists():
+                    shutil.rmtree(old_index_path)
                 backup_path.rename(old_index_path)
             stats["errors"].append(f"Index swap failed: {e}")
             raise
