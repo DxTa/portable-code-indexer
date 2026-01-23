@@ -126,7 +126,7 @@ backend.close()
 """
 
     result = subprocess.run(
-        ["python3", "-c", init_script],
+        [sys.executable, "-c", init_script],
         cwd=repo_path,
         capture_output=True,
         text=True,
@@ -138,8 +138,10 @@ backend.close()
 
     # Index repository
     start = time.time()
+    # Use the sia-code from the same environment as the running Python
+    sia_code_path = str(Path(sys.executable).parent / "sia-code")
     result = subprocess.run(
-        ["sia-code", "index", "."],
+        [sia_code_path, "index", "."],
         cwd=repo_path,
         capture_output=True,
         text=True,
@@ -175,7 +177,7 @@ def run_benchmark(repo_name: str, repo_path: Path, num_queries: int) -> dict:
 
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             str(PCI_DIR / "tests/benchmarks/run_repoeval_benchmark.py"),
             "--repo",
             repo_name,

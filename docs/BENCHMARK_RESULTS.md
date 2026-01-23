@@ -12,6 +12,8 @@ Complete analysis of RepoEval benchmark results showing sia-code's 89.9% Recall@
 
 **Best Configuration:** **Lexical-only** (FTS5 BM25 with `vector_weight=0.0`)
 
+**Last Verified:** January 23, 2026 (v0.3.0) - Results confirmed consistent
+
 ---
 
 ## Table of Contents

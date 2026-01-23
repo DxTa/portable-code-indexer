@@ -36,10 +36,10 @@ def run_sia_code_search(repo_path: Path, query: str, top_k: int = 10) -> list[st
         List of file paths (relative to repo)
     """
     try:
-        # Use 'sia-code' directly (assumes it's installed in current environment)
-        # This uses the local version with hybrid search enabled by default
+        # Use 'sia-code' from the same environment as the running Python
+        sia_code_path = str(Path(sys.executable).parent / "sia-code")
         result = subprocess.run(
-            ["sia-code", "search", query, "--limit", str(top_k)],
+            [sia_code_path, "search", query, "--limit", str(top_k)],
             capture_output=True,
             text=True,
             cwd=repo_path,
