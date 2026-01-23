@@ -1,7 +1,6 @@
 """Protocol for embedding server communication."""
 
 import json
-from typing import Any
 
 
 class Message:

@@ -6,19 +6,16 @@ import signal
 import socket
 import sys
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import psutil
 
 from .protocol import (
-    EmbedRequest,
     EmbedResponse,
     ErrorResponse,
-    HealthRequest,
     HealthResponse,
     Message,
 )
@@ -395,7 +392,7 @@ def stop_daemon(pid_path: str = "/tmp/sia-embed.pid"):
         print(f"Sent SIGTERM to daemon (PID {pid})")
         return True
     except ProcessLookupError:
-        print(f"Daemon not running (stale PID file)")
+        print("Daemon not running (stale PID file)")
         pid_file.unlink()
         return False
     except Exception as e:
