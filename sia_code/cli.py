@@ -1847,5 +1847,92 @@ def memory_import(input_file):
         sys.exit(1)
 
 
+@main.group()
+def embed():
+    """Embedding server management.
+
+    Start a persistent daemon to share embedding models across repos.
+    Saves memory and improves startup time for multi-repo workflows.
+    """
+    pass
+
+
+@embed.command(name="start")
+@click.option("--foreground", is_flag=True, help="Run in foreground (don't daemonize)")
+@click.option("--log", type=click.Path(), help="Log file path (default: stderr)")
+def embed_start(foreground, log):
+    """Start the embedding server daemon.
+
+    The daemon loads embedding models on-demand and shares them across
+    all sia-code sessions, reducing memory usage and startup time.
+
+    Example: sia-code embed start
+    """
+    from .embed_server.daemon import start_daemon
+
+    console.print("[cyan]Starting embedding server...[/cyan]")
+
+    try:
+        start_daemon(foreground=foreground, log_path=log)
+        if not foreground:
+            console.print("[green]✓[/green] Embedding server started")
+            console.print("[dim]Use 'sia-code embed status' to check health[/dim]")
+    except Exception as e:
+        console.print(f"[red]Error starting daemon: {e}[/red]")
+        sys.exit(1)
+
+
+@embed.command(name="stop")
+def embed_stop():
+    """Stop the embedding server daemon.
+
+    Example: sia-code embed stop
+    """
+    from .embed_server.daemon import stop_daemon
+
+    console.print("[cyan]Stopping embedding server...[/cyan]")
+
+    if stop_daemon():
+        console.print("[green]✓[/green] Embedding server stopped")
+    else:
+        console.print("[yellow]Embedding server was not running[/yellow]")
+
+
+@embed.command(name="status")
+def embed_status():
+    """Show embedding server status.
+
+    Displays:
+    - Running status
+    - Loaded models
+    - Memory usage
+    - Device (CPU/GPU)
+
+    Example: sia-code embed status
+    """
+    from .embed_server.daemon import daemon_status
+
+    status = daemon_status()
+
+    if status["running"]:
+        health = status.get("health", {})
+
+        console.print("[green]● Embedding server is running[/green]")
+        console.print(f"  PID: {status['pid']}")
+        console.print(f"  Device: {health.get('device', 'unknown')}")
+        console.print(f"  Memory: {health.get('memory_mb', 0):.1f} MB")
+
+        models = health.get("models_loaded", [])
+        if models:
+            console.print(f"  Models loaded: {', '.join(models)}")
+        else:
+            console.print("  Models loaded: none (will load on first request)")
+    else:
+        console.print("[red]● Embedding server is not running[/red]")
+        if "reason" in status:
+            console.print(f"  Reason: {status['reason']}")
+        console.print("\n[dim]Start with: sia-code embed start[/dim]")
+
+
 if __name__ == "__main__":
     main()
