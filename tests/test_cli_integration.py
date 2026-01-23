@@ -69,7 +69,7 @@ class TestCLIInit:
         assert result.returncode == 0
         assert (test_project / ".sia-code").exists()
         assert (test_project / ".sia-code" / "config.json").exists()
-        assert (test_project / ".sia-code" / "index.mv2").exists()
+        assert (test_project / ".sia-code" / "index.db").exists()
 
     def test_init_already_initialized(self, test_project):
         """Test init when already initialized."""

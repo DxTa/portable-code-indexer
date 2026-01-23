@@ -36,7 +36,7 @@ class SiaCodeRetriever:
         """Initialize sia-code retriever.
 
         Args:
-            index_path: Path to .pci/index.mv2 file
+            index_path: Path to .pci/index.db file
             max_hops: Maximum hops for multi-hop search
             max_results_per_hop: Results to explore per hop
         """

@@ -140,7 +140,7 @@ class TestPerformanceBenchmarks(BaseE2ETest):
                     pass
 
         # Get index size
-        index_path = indexed_repo / ".sia-code" / "index.mv2"
+        index_path = indexed_repo / ".sia-code" / "index.db"
         index_size = index_path.stat().st_size if index_path.exists() else 0
 
         ratio = index_size / source_size if source_size > 0 else 0

@@ -590,7 +590,7 @@ class IndexingCoordinator:
         logger.info("Performing atomic index swap...")
 
         # Define backup path before try block
-        backup_path = old_index_path.parent / "index-backup.mv2"
+        backup_path = old_index_path.parent / "index-backup.db"
 
         try:
             # Backup old index

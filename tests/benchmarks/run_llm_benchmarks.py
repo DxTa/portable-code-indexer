@@ -28,7 +28,7 @@ from .retrievers import create_retriever
 
 
 # Default paths for retrievers (can be overridden via CLI args)
-DEFAULT_INDEX_PATH = Path(".pci/index.mv2")
+DEFAULT_INDEX_PATH = Path(".pci/index.db")
 DEFAULT_CODEBASE_PATH = Path(".")
 
 
@@ -272,7 +272,7 @@ def main():
         "--index-path",
         type=Path,
         default=DEFAULT_INDEX_PATH,
-        help="Path to .pci/index.mv2 file (for sia-code retriever)",
+        help="Path to .pci/index.db file (for sia-code retriever)",
     )
     parser.add_argument(
         "--codebase-path",

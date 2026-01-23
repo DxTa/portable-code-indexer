@@ -238,7 +238,7 @@ def index(
         console.print("[yellow]Cleaning existing index and cache...[/yellow]")
 
         # Remove index file
-        index_path = sia_dir
+        index_path = sia_dir / "index.db"
         if index_path.exists():
             index_path.unlink()
             console.print(f"  [dim]✓ Deleted: {index_path}[/dim]")

@@ -341,8 +341,8 @@ def main():
     parser.add_argument(
         "--index-path",
         type=Path,
-        default=Path(".sia-code/index.mv2"),
-        help="Path to .sia-code/index.mv2 file",
+        default=Path(".sia-code/index.db"),
+        help="Path to .sia-code/index.db file",
     )
     parser.add_argument(
         "--codebase-path",
