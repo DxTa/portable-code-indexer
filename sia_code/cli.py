@@ -19,7 +19,6 @@ from rich.table import Table
 from . import __version__
 from .config import Config
 from .indexer.coordinator import IndexingCoordinator
-from .storage.factory import create_backend, get_backend_type
 
 console = Console()
 

@@ -522,7 +522,6 @@ class UsearchSqliteBackend(StorageBackend):
             # Embed and add to vector index (if embeddings enabled)
             if self.embedding_enabled:
                 vector = self._embed(f"{chunk.symbol}\n\n{chunk.code}")
-                vector_key = self._make_chunk_key(chunk_id)
                 self.vector_index.add(chunk_id, vector)  # Use numeric ID, we'll prefix on search
 
                 # Track that we modified the index after viewing
@@ -1083,7 +1082,6 @@ class UsearchSqliteBackend(StorageBackend):
 
         vector = self._embed(decision_text)
         # Store with decision key prefix
-        vector_key = self._make_decision_key(decision_id)
         if self.vector_index:
             self.vector_index.add(decision_id + 1000000, vector)  # Offset to avoid ID collision
 

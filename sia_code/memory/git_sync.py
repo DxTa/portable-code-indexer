@@ -1,7 +1,6 @@
 """Git sync service for importing timeline events and changelogs."""
 
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 

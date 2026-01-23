@@ -51,7 +51,7 @@ def load_gitignore_patterns(root: Path) -> list[str]:
                             patterns.append(f"{prefix}{line}")
                         else:
                             patterns.append(line)
-        except (OSError, IOError) as e:
+        except (OSError, IOError):
             # Skip gitignore files that can't be read
             continue
 
