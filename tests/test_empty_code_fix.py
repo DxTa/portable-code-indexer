@@ -4,14 +4,14 @@ import pytest
 from pathlib import Path
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber
-from sia_code.storage.backend import MemvidBackend
+from sia_code.storage.usearch_backend import UsearchSqliteBackend
 
 
 @pytest.fixture
 def backend(tmp_path):
     """Create a temporary backend for testing."""
-    test_path = tmp_path / "test_empty_code.mv2"
-    backend = MemvidBackend(test_path, embedding_enabled=False)
+    test_path = tmp_path / "test_empty_code.sia-code"
+    backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
     backend.create_index()
     yield backend
     backend.close()

@@ -116,7 +116,7 @@ def initialized_repo(target_repo):
     sia_dir = target_repo / ".sia-code"
     assert sia_dir.exists(), ".sia-code directory not created"
     assert (sia_dir / "config.json").exists(), "config.json not created"
-    assert (sia_dir / "index.mv2").exists(), "index.mv2 not created"
+    assert (sia_dir / "index.db").exists(), "index.db not created"
 
     return target_repo
 
@@ -129,7 +129,7 @@ def indexed_repo(initialized_repo):
     making all subsequent tests faster.
     """
     # Check if index already has content (skip re-indexing if it does)
-    index_path = initialized_repo / ".sia-code" / "index.mv2"
+    index_path = initialized_repo / ".sia-code" / "index.db"
     if index_path.exists() and index_path.stat().st_size > 100000:  # >100KB means indexed
         # Index exists and has content, skip re-indexing
         return initialized_repo

@@ -6,14 +6,72 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 
+def load_gitignore_patterns(root: Path) -> list[str]:
+    """Load patterns from all .gitignore files in the tree.
+
+    Handles:
+    - Root .gitignore
+    - Nested .gitignore files (with relative path prefixing)
+    - Comments (#)
+    - Empty lines
+    - Negation patterns (!)
+
+    Args:
+        root: Root directory to search for .gitignore files
+
+    Returns:
+        List of patterns compatible with pathspec (gitwildmatch)
+    """
+    patterns = []
+
+    # Walk the directory tree to find all .gitignore files
+    for gitignore_path in root.rglob(".gitignore"):
+        try:
+            rel_dir = gitignore_path.parent.relative_to(root)
+            # For root .gitignore, prefix is empty; for nested, use relative path
+            prefix = str(rel_dir) + "/" if str(rel_dir) != "." else ""
+
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if not line or line.startswith("#"):
+                        continue
+
+                    # Handle negation patterns
+                    if line.startswith("!"):
+                        # Negation patterns need prefix too
+                        if prefix and not line.startswith("!/"):
+                            patterns.append(f"!{prefix}{line[1:]}")
+                        else:
+                            patterns.append(line)
+                    else:
+                        # Regular patterns
+                        if prefix and not line.startswith("/"):
+                            patterns.append(f"{prefix}{line}")
+                        else:
+                            patterns.append(line)
+        except (OSError, IOError):
+            # Skip gitignore files that can't be read
+            continue
+
+    return patterns
+
+
 class EmbeddingConfig(BaseModel):
-    """Embedding configuration."""
+    """Embedding configuration.
+
+    Supported models (local via sentence-transformers):
+    - BGE: "BAAI/bge-small-en-v1.5" (384d), "BAAI/bge-base-en-v1.5" (768d), "BAAI/bge-large-en-v1.5" (1024d)
+    - MiniLM: "sentence-transformers/all-MiniLM-L6-v2" (384d)
+    - Other HuggingFace models compatible with sentence-transformers
+    """
 
     enabled: bool = True
-    provider: str = "openai"  # "openai", "ollama", or "local"
-    model: str = "openai-small"  # "openai-small", "openai-large", or "bge-small"
-    api_key_env: str = "OPENAI_API_KEY"  # Environment variable for API key
-    dimensions: int = 1536  # Embedding dimensions (1536 for openai-small, 3072 for openai-large)
+    provider: str = "huggingface"  # Deprecated - provider auto-detected from model name
+    model: str = "BAAI/bge-base-en-v1.5"  # Model name (see supported models above)
+    api_key_env: str = ""  # Environment variable for API key (not needed for local models)
+    dimensions: int = 768  # Embedding dimensions (auto-detected for most models)
 
 
 class IndexingConfig(BaseModel):
@@ -25,6 +83,9 @@ class IndexingConfig(BaseModel):
             "__pycache__/",
             ".git/",
             "venv/",
+            "*venv",
+            "build",
+            "dist",
             ".venv/",
             "*.pyc",
             "*.pyo",
@@ -35,6 +96,26 @@ class IndexingConfig(BaseModel):
     )
     include_patterns: list[str] = Field(default_factory=lambda: ["**/*"])
     max_file_size_mb: int = 5
+
+    def get_effective_exclude_patterns(self, root: Path) -> list[str]:
+        """Get combined exclude patterns from config and .gitignore files.
+
+        Automatically loads patterns from all .gitignore files in the tree
+        and merges them with the configured exclude_patterns.
+
+        Args:
+            root: Root directory to search for .gitignore files
+
+        Returns:
+            Combined list of exclude patterns (deduplicated)
+        """
+        patterns = list(self.exclude_patterns)
+        gitignore_patterns = load_gitignore_patterns(root)
+        # Merge without duplicates
+        for p in gitignore_patterns:
+            if p not in patterns:
+                patterns.append(p)
+        return patterns
 
 
 class ChunkingConfig(BaseModel):
@@ -52,6 +133,9 @@ class SearchConfig(BaseModel):
     default_limit: int = 10
     multi_hop_enabled: bool = True
     max_hops: int = 2
+    vector_weight: float = (
+        0.7  # Weight for vector search in hybrid (0.0=lexical only, 1.0=semantic only)
+    )
     # Configurable tier boosting for search results
     tier_boost: dict[str, float] = Field(
         default_factory=lambda: {
@@ -89,6 +173,14 @@ class AdaptiveConfig(BaseModel):
     search_strategy: str = "weighted"  # "weighted" or "non_dominated"
 
 
+class SummarizationConfig(BaseModel):
+    """AI-powered commit summarization configuration."""
+
+    enabled: bool = True
+    model: str = "google/flan-t5-base"  # 248MB, best quality/speed balance
+    max_commits: int = 20  # Max commits to include in summary
+
+
 class Config(BaseModel):
     """Main PCI configuration."""
 
@@ -100,6 +192,7 @@ class Config(BaseModel):
     dependencies: DependencyConfig = Field(default_factory=DependencyConfig)
     documentation: DocumentationConfig = Field(default_factory=DocumentationConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
+    summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
 
     @classmethod
     def load(cls, path: Path) -> "Config":

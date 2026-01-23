@@ -59,8 +59,8 @@ Thumbs.db
 dist/
 *.whl
 
-# ChunkHound database
-.chunkhound/
-
 # Documentation
-docs/
+!docs/
+results
+venv*
+plans

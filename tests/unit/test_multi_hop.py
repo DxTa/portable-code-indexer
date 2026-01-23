@@ -5,14 +5,14 @@ from pathlib import Path
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber, ChunkId
 from sia_code.search.multi_hop import MultiHopSearchStrategy, CodeRelationship
-from sia_code.storage.backend import MemvidBackend
+from sia_code.storage.usearch_backend import UsearchSqliteBackend
 
 
 @pytest.fixture
 def backend(tmp_path):
     """Create a temporary backend for testing."""
-    test_path = tmp_path / "test_multihop.mv2"
-    backend = MemvidBackend(test_path, embedding_enabled=False)
+    test_path = tmp_path / ".sia-code"
+    backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
     backend.create_index()
     yield backend
     backend.close()
@@ -187,7 +187,7 @@ class TestMultiHopResearch:
 class TestCallGraphBuilding:
     """Test call graph construction from relationships."""
 
-    def test_build_call_graph(self):
+    def test_build_call_graph(self, tmp_path):
         """Test building call graph from relationships."""
         relationships = [
             CodeRelationship(
@@ -213,7 +213,7 @@ class TestCallGraphBuilding:
             ),
         ]
 
-        backend = MemvidBackend(Path(":memory:"), embedding_enabled=False)
+        backend = UsearchSqliteBackend(tmp_path / ".sia-code", embedding_enabled=False)
         strategy = MultiHopSearchStrategy(backend, max_hops=1)
 
         graph = strategy.build_call_graph(relationships)
@@ -232,9 +232,9 @@ class TestCallGraphBuilding:
         assert len(graph["fetch_data"]) == 1
         assert graph["fetch_data"][0]["target"] == "parse_response"
 
-    def test_build_call_graph_empty(self):
+    def test_build_call_graph_empty(self, tmp_path):
         """Test building call graph with no relationships."""
-        backend = MemvidBackend(Path(":memory:"), embedding_enabled=False)
+        backend = UsearchSqliteBackend(tmp_path / ".sia-code", embedding_enabled=False)
         strategy = MultiHopSearchStrategy(backend, max_hops=1)
 
         graph = strategy.build_call_graph([])
@@ -242,7 +242,7 @@ class TestCallGraphBuilding:
         # Should return empty graph
         assert graph == {}
 
-    def test_build_call_graph_includes_metadata(self):
+    def test_build_call_graph_includes_metadata(self, tmp_path):
         """Test that call graph includes relationship metadata."""
         relationships = [
             CodeRelationship(
@@ -254,7 +254,7 @@ class TestCallGraphBuilding:
             ),
         ]
 
-        backend = MemvidBackend(Path(":memory:"), embedding_enabled=False)
+        backend = UsearchSqliteBackend(tmp_path / ".sia-code", embedding_enabled=False)
         strategy = MultiHopSearchStrategy(backend, max_hops=1)
 
         graph = strategy.build_call_graph(relationships)
@@ -267,7 +267,7 @@ class TestCallGraphBuilding:
 class TestEntryPointDetection:
     """Test entry point identification in call graphs."""
 
-    def test_get_entry_points(self):
+    def test_get_entry_points(self, tmp_path):
         """Test identifying entry points (no incoming edges)."""
         relationships = [
             CodeRelationship("main", "load_config", "function_call"),
@@ -275,7 +275,7 @@ class TestEntryPointDetection:
             CodeRelationship("fetch_data", "parse_response", "function_call"),
         ]
 
-        backend = MemvidBackend(Path(":memory:"), embedding_enabled=False)
+        backend = UsearchSqliteBackend(tmp_path / ".sia-code", embedding_enabled=False)
         strategy = MultiHopSearchStrategy(backend, max_hops=1)
 
         entry_points = strategy.get_entry_points(relationships)
@@ -286,7 +286,7 @@ class TestEntryPointDetection:
         assert "fetch_data" not in entry_points  # Called by main
         assert "parse_response" not in entry_points  # Called by fetch_data
 
-    def test_get_entry_points_multiple(self):
+    def test_get_entry_points_multiple(self, tmp_path):
         """Test identifying multiple entry points."""
         relationships = [
             CodeRelationship("main", "helper", "function_call"),
@@ -294,7 +294,7 @@ class TestEntryPointDetection:
             CodeRelationship("helper", "util", "function_call"),
         ]
 
-        backend = MemvidBackend(Path(":memory:"), embedding_enabled=False)
+        backend = UsearchSqliteBackend(tmp_path / ".sia-code", embedding_enabled=False)
         strategy = MultiHopSearchStrategy(backend, max_hops=1)
 
         entry_points = strategy.get_entry_points(relationships)
@@ -304,9 +304,9 @@ class TestEntryPointDetection:
         assert "main" in entry_points
         assert "test_main" in entry_points
 
-    def test_get_entry_points_empty(self):
+    def test_get_entry_points_empty(self, tmp_path):
         """Test entry point detection with no relationships."""
-        backend = MemvidBackend(Path(":memory:"), embedding_enabled=False)
+        backend = UsearchSqliteBackend(tmp_path / ".sia-code", embedding_enabled=False)
         strategy = MultiHopSearchStrategy(backend, max_hops=1)
 
         entry_points = strategy.get_entry_points([])
@@ -314,7 +314,7 @@ class TestEntryPointDetection:
         # Should return empty list
         assert entry_points == []
 
-    def test_get_entry_points_circular(self):
+    def test_get_entry_points_circular(self, tmp_path):
         """Test entry point detection with circular relationships."""
         relationships = [
             CodeRelationship("A", "B", "calls"),
@@ -322,7 +322,7 @@ class TestEntryPointDetection:
             CodeRelationship("C", "A", "calls"),  # Circular
         ]
 
-        backend = MemvidBackend(Path(":memory:"), embedding_enabled=False)
+        backend = UsearchSqliteBackend(tmp_path / ".sia-code", embedding_enabled=False)
         strategy = MultiHopSearchStrategy(backend, max_hops=1)
 
         entry_points = strategy.get_entry_points(relationships)

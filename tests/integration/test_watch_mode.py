@@ -6,7 +6,7 @@ from pathlib import Path
 from sia_code.indexer.coordinator import IndexingCoordinator
 from sia_code.indexer.hash_cache import HashCache
 from sia_code.indexer.chunk_index import ChunkIndex
-from sia_code.storage.backend import MemvidBackend
+from sia_code.storage.usearch_backend import UsearchSqliteBackend
 from sia_code.config import Config, ChunkingConfig
 
 
@@ -30,8 +30,8 @@ def hello():
 def test_setup(tmp_path, temp_workspace):
     """Set up test infrastructure (backend, cache, index)."""
     # Create backend
-    backend_path = tmp_path / "test.mv2"
-    backend = MemvidBackend(backend_path, embedding_enabled=False)
+    backend_path = tmp_path / "test.sia-code"
+    backend = UsearchSqliteBackend(backend_path, embedding_enabled=False)
     backend.create_index()
 
     # Create cache and chunk index

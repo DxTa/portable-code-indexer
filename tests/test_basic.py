@@ -4,14 +4,14 @@ import pytest
 from pathlib import Path
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber
-from sia_code.storage.backend import MemvidBackend
+from sia_code.storage.backend import UsearchSqliteBackend
 
 
 @pytest.fixture
 def backend(tmp_path):
     """Create a temporary backend for testing."""
-    test_path = tmp_path / "test_index.mv2"
-    backend = MemvidBackend(test_path, embedding_enabled=False)
+    test_path = tmp_path / "test_index.sia-code"
+    backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
     backend.create_index()
     yield backend
     backend.close()
@@ -36,10 +36,10 @@ def sample_chunks():
             file_path=FilePath("sia_code/core/types.py"),
         ),
         Chunk(
-            symbol="MemvidBackend",
+            symbol="UsearchSqliteBackend",
             start_line=LineNumber(12),
             end_line=LineNumber(150),
-            code="""class MemvidBackend:
+            code="""class UsearchSqliteBackend:
     \"\"\"Storage backend using Memvid for code search.\"\"\"
     
     def __init__(self, path: Path):
@@ -75,13 +75,13 @@ def sample_chunks():
     ]
 
 
-class TestMemvidBackend:
-    """Test MemvidBackend functionality."""
+class TestUsearchSqliteBackend:
+    """Test UsearchSqliteBackend functionality."""
 
     def test_create_index(self, tmp_path):
         """Test index creation."""
-        test_path = tmp_path / "test.mv2"
-        backend = MemvidBackend(test_path, embedding_enabled=False)
+        test_path = tmp_path / "test.sia-code"
+        backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
         backend.create_index()
         assert backend.mem is not None
         backend.close()
@@ -207,8 +207,8 @@ class TestURIParsing:
 
     def test_parse_valid_uri(self, tmp_path):
         """Test parsing valid pci:// URI."""
-        test_path = tmp_path / "test.mv2"
-        backend = MemvidBackend(test_path, embedding_enabled=False)
+        test_path = tmp_path / "test.sia-code"
+        backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
         backend.create_index()
 
         file_path, start, end = backend._parse_uri("pci:///home/user/file.py#42")
@@ -219,8 +219,8 @@ class TestURIParsing:
 
     def test_parse_uri_no_line(self, tmp_path):
         """Test parsing URI without line number."""
-        test_path = tmp_path / "test.mv2"
-        backend = MemvidBackend(test_path, embedding_enabled=False)
+        test_path = tmp_path / "test.sia-code"
+        backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
         backend.create_index()
 
         file_path, start, end = backend._parse_uri("pci:///home/user/file.py")
@@ -231,8 +231,8 @@ class TestURIParsing:
 
     def test_parse_invalid_uri(self, tmp_path):
         """Test parsing invalid URI returns defaults."""
-        test_path = tmp_path / "test.mv2"
-        backend = MemvidBackend(test_path, embedding_enabled=False)
+        test_path = tmp_path / "test.sia-code"
+        backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
         backend.create_index()
 
         file_path, start, end = backend._parse_uri("invalid://something")

@@ -6,7 +6,7 @@ from typing import Set
 
 from ..core.models import Chunk
 from ..core.types import ChunkId
-from ..storage.backend import MemvidBackend
+from ..storage.base import StorageBackend
 from .entity_extractor import EntityExtractor, Entity
 from .query_preprocessor import QueryPreprocessor
 
@@ -38,7 +38,7 @@ class ResearchResult:
 class MultiHopSearchStrategy:
     """Implements multi-hop code research for architectural discovery."""
 
-    def __init__(self, backend: MemvidBackend, max_hops: int = 2):
+    def __init__(self, backend: StorageBackend, max_hops: int = 2):
         """Initialize multi-hop search strategy.
 
         Args:

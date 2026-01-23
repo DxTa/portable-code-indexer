@@ -4,6 +4,7 @@ from pathlib import Path
 import logging
 import time
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable
 
@@ -12,7 +13,8 @@ import pathspec
 from ..config import Config
 from ..core.types import Language
 from ..parser.chunker import CASTChunker, CASTConfig
-from ..storage.backend import MemvidBackend
+from ..storage.base import StorageBackend
+from ..storage.usearch_backend import UsearchSqliteBackend
 from .hash_cache import HashCache
 from .chunk_index import ChunkIndex
 from .metrics import PerformanceMetrics
@@ -56,7 +58,7 @@ def _chunk_file_worker(
 class IndexingCoordinator:
     """Coordinates the indexing process."""
 
-    def __init__(self, config: Config, backend: MemvidBackend):
+    def __init__(self, config: Config, backend: StorageBackend):
         """Initialize coordinator.
 
         Args:
@@ -214,6 +216,13 @@ class IndexingCoordinator:
         stats["metrics"] = metrics.to_dict()
         logger.info(f"Indexing complete: {metrics}")
 
+        # Final seal to compact WAL and reduce index size
+        try:
+            self.backend.seal()
+            logger.info("Index sealed successfully")
+        except Exception as e:
+            logger.warning(f"Failed to seal index: {e}")
+
         return stats
 
     def index_directory_parallel(
@@ -326,10 +335,11 @@ class IndexingCoordinator:
         Returns:
             List of file paths to index
         """
-        # Build gitignore-style spec
+        # Build gitignore-style spec (includes .gitignore patterns)
+        effective_patterns = self.config.indexing.get_effective_exclude_patterns(directory)
         spec = pathspec.PathSpec.from_lines(
             "gitwildmatch",
-            self.config.indexing.exclude_patterns,
+            effective_patterns,
         )
 
         files = []
@@ -340,10 +350,11 @@ class IndexingCoordinator:
                     rel_path = file_path.relative_to(directory)
                     if not spec.match_file(str(rel_path)):
                         # Check file size
-                        if (
-                            file_path.stat().st_size
-                            <= self.config.indexing.max_file_size_mb * 1024 * 1024
-                        ):
+                        file_size = file_path.stat().st_size
+                        # Skip empty files (0 bytes)
+                        if file_size == 0:
+                            continue
+                        if file_size <= self.config.indexing.max_file_size_mb * 1024 * 1024:
                             files.append(file_path)
 
         return files
@@ -516,18 +527,16 @@ class IndexingCoordinator:
         logger.info(f"Rebuilding index with {len(valid_chunks)} valid chunks...")
         logger.info(f"Removing {len(stale_chunks)} stale chunks...")
 
-        # Create new index file path
-        new_index_path = self.backend.path.parent / "index-new.mv2"
+        # Create new index directory path
+        new_index_path = self.backend.path.parent / ".sia-code-new"
         old_index_path = self.backend.path
 
         # Create new backend for new index (with same embedding config)
-        from ..storage.backend import MemvidBackend
-
-        new_backend = MemvidBackend(
+        new_backend = UsearchSqliteBackend(
             path=new_index_path,
             embedding_enabled=self.backend.embedding_enabled,
             embedding_model=self.backend.embedding_model,
-            api_key_env=self.backend.api_key_env,
+            ndim=self.backend.ndim if hasattr(self.backend, "ndim") else 768,
         )
         new_backend.create_index()
 
@@ -582,7 +591,7 @@ class IndexingCoordinator:
         logger.info("Performing atomic index swap...")
 
         # Define backup path before try block
-        backup_path = old_index_path.parent / "index-backup.mv2"
+        backup_path = old_index_path.parent / "index-backup.db"
 
         try:
             # Backup old index
@@ -594,7 +603,7 @@ class IndexingCoordinator:
 
             # Delete backup after successful swap
             if backup_path.exists():
-                backup_path.unlink()
+                shutil.rmtree(backup_path)
 
             logger.info("Index compaction complete - swapped to new index")
 
@@ -602,6 +611,8 @@ class IndexingCoordinator:
             logger.error(f"Failed to swap index: {e}")
             # Rollback: restore backup if it exists
             if backup_path.exists():
+                if old_index_path.exists():
+                    shutil.rmtree(old_index_path)
                 backup_path.rename(old_index_path)
             stats["errors"].append(f"Index swap failed: {e}")
             raise

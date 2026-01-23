@@ -13,9 +13,9 @@ from ..core.types import FilePath, Language, LineNumber
 class CASTConfig:
     """Configuration for cAST algorithm."""
 
-    max_chunk_size: int = 1200  # Non-whitespace characters
-    min_chunk_size: int = 50
-    merge_threshold: float = 0.8
+    max_chunk_size: int = 4000  # Non-whitespace characters (optimized for fewer chunks)
+    min_chunk_size: int = 200  # Increased to avoid tiny fragments
+    merge_threshold: float = 0.9  # More aggressive merging
     greedy_merge: bool = True
 
 
@@ -50,6 +50,10 @@ class CASTChunker:
         with open(file_path, "rb") as f:
             source_code = f.read()
 
+        # Skip empty files
+        if not source_code or len(source_code.strip()) == 0:
+            return []
+
         extractor = ConceptExtractor(language)
         concepts = extractor.extract_concepts(root, source_code)
 
@@ -67,6 +71,9 @@ class CASTChunker:
         """Convert concepts to chunks."""
         chunks = []
         for concept in concepts:
+            # Skip concepts with empty code
+            if not concept.code or not concept.code.strip():
+                continue
             chunks.append(
                 Chunk(
                     symbol=concept.symbol,

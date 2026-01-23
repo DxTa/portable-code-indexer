@@ -40,8 +40,8 @@ class TestJavaE2E(JavaE2ETest):
             assert "chunking" in config
 
     def test_init_creates_index_file(self, initialized_repo):
-        """Test that index.mv2 file is created."""
-        index_path = initialized_repo / ".sia-code" / "index.mv2"
+        """Test that index.db file is created."""
+        index_path = initialized_repo / ".sia-code" / "index.db"
         assert index_path.exists()
 
     # ===== INDEXING TESTS =====
