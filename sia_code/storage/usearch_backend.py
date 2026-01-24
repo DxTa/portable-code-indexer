@@ -94,12 +94,30 @@ class UsearchSqliteBackend(StorageBackend):
         self.KEY_PREFIX_MEMORY = "memory:"
 
     def _get_embedder(self):
-        """Lazy-load the embedding model with GPU if available."""
+        """Lazy-load the embedding model with GPU if available.
+
+        Tries to use embedding daemon first for better performance and memory sharing.
+        Falls back to local model if daemon is not available.
+        """
         if self._embedder is None:
-            # Import here to avoid loading if not needed
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            # Try embedding daemon first (fast path with model sharing)
+            try:
+                from ..embed_server.client import EmbedClient
+
+                if EmbedClient.is_available():
+                    self._embedder = EmbedClient(model_name=self.embedding_model)
+                    logger.info(f"Using embedding daemon for {self.embedding_model}")
+                    return self._embedder
+            except Exception as e:
+                logger.debug(f"Embedding daemon not available: {e}")
+
+            # Fallback to local model (current behavior)
             from sentence_transformers import SentenceTransformer
             import torch
-            import logging
 
             # Auto-detect device (GPU if available, CPU fallback)
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -107,8 +125,7 @@ class UsearchSqliteBackend(StorageBackend):
             self._embedder = SentenceTransformer(self.embedding_model, device=device)
 
             # Log device for debugging
-            logger = logging.getLogger(__name__)
-            logger.info(f"Loaded {self.embedding_model} on {device.upper()}")
+            logger.info(f"Loaded local {self.embedding_model} on {device.upper()}")
 
         return self._embedder
 
