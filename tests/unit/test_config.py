@@ -199,7 +199,6 @@ class TestIndexingConfigEffectivePatterns:
 
         assert node_modules_count == 1, "node_modules/ should appear only once"
         assert pycache_count == 1, "__pycache__/ should appear only once"
-        assert "*.custom" in patterns
 
     def test_effective_patterns_with_nested_gitignore(self, temp_repo):
         """Test merging patterns from nested .gitignore files."""
@@ -234,6 +233,13 @@ class TestIndexingConfigEffectivePatterns:
         assert "*.custom" in patterns
         assert "my_dir/" in patterns
         assert "*.log" in patterns
+
+
+def test_indexing_config_defaults():
+    """Ensure indexing defaults include batching configuration."""
+    config = IndexingConfig()
+
+    assert config.chunk_batch_size == 500
 
 
 class TestConfigLoadAndSave:

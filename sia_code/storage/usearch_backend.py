@@ -180,6 +180,24 @@ class UsearchSqliteBackend(StorageBackend):
 
         return self._embedding_cache(text)
 
+    def _embed_batch(self, texts: list[str]) -> np.ndarray | None:
+        """Embed a batch of texts to vectors.
+
+        Args:
+            texts: List of texts to embed
+
+        Returns:
+            Array of embedding vectors, or None if embeddings disabled
+        """
+        if not self.embedding_enabled:
+            return None
+        if not texts:
+            return np.empty((0, self.ndim), dtype=np.float32)
+
+        embedder = self._get_embedder()
+        vectors = embedder.encode(texts, convert_to_numpy=True)
+        return np.array(vectors)
+
     def _make_chunk_key(self, chunk_id: int) -> str:
         """Create vector index key for chunk."""
         return f"{self.KEY_PREFIX_CHUNK}{chunk_id}"
@@ -514,7 +532,12 @@ class UsearchSqliteBackend(StorageBackend):
         cursor = self.conn.cursor()
         chunk_ids = []
 
-        for chunk in chunks:
+        vectors = None
+        if self.embedding_enabled:
+            texts = [f"{chunk.symbol}\n\n{chunk.code}" for chunk in chunks]
+            vectors = self._embed_batch(texts)
+
+        for idx, chunk in enumerate(chunks):
             # Insert into SQLite
             uri = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
             cursor.execute(
@@ -537,8 +560,8 @@ class UsearchSqliteBackend(StorageBackend):
             chunk_id = cursor.lastrowid
 
             # Embed and add to vector index (if embeddings enabled)
-            if self.embedding_enabled:
-                vector = self._embed(f"{chunk.symbol}\n\n{chunk.code}")
+            if self.embedding_enabled and vectors is not None:
+                vector = vectors[idx]
                 self.vector_index.add(chunk_id, vector)  # Use numeric ID, we'll prefix on search
 
                 # Track that we modified the index after viewing
@@ -750,15 +773,45 @@ class UsearchSqliteBackend(StorageBackend):
         # Search usearch index
         matches = self.vector_index.search(query_vector, k)
 
-        # Convert to SearchResults
-        results = []
+        ids_with_scores = []
         for key, distance in zip(matches.keys, matches.distances):
-            # Keys are numeric chunk IDs
-            chunk = self.get_chunk(str(key))
+            score = 1.0 - float(distance)
+            ids_with_scores.append((str(key), score))
+
+        if not ids_with_scores:
+            return []
+
+        chunk_ids = [chunk_id for chunk_id, _ in ids_with_scores]
+        cursor = self.conn.cursor()
+        placeholders = ",".join("?" * len(chunk_ids))
+        cursor.execute(
+            f"""
+            SELECT id, symbol, chunk_type, file_path, start_line, end_line,
+                   language, code, metadata, created_at
+            FROM chunks WHERE id IN ({placeholders})
+            """,
+            chunk_ids,
+        )
+
+        chunk_lookup = {}
+        for row in cursor.fetchall():
+            chunk_lookup[str(row["id"])] = Chunk(
+                id=str(row["id"]),
+                symbol=row["symbol"],
+                chunk_type=ChunkType(row["chunk_type"]),
+                file_path=Path(row["file_path"]),
+                start_line=row["start_line"],
+                end_line=row["end_line"],
+                language=Language(row["language"]),
+                code=row["code"],
+                metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            )
+
+        results = []
+        for chunk_id, score in ids_with_scores:
+            chunk = chunk_lookup.get(chunk_id)
             if chunk:
-                # Convert distance to similarity score (0-1, higher is better)
-                # For cosine distance, score = 1 - distance
-                score = 1.0 - float(distance)
                 results.append(SearchResult(chunk=chunk, score=score))
 
         # Apply tier filtering and boosting
@@ -799,12 +852,45 @@ class UsearchSqliteBackend(StorageBackend):
             (sanitized_query, k),
         )
 
-        results = []
+        rows = cursor.fetchall()
+        if not rows:
+            return []
+
+        ids_with_scores = []
+        for row in rows:
+            score = abs(float(row["rank"])) / 100.0  # Rough normalization
+            ids_with_scores.append((str(row["id"]), score))
+
+        chunk_ids = [chunk_id for chunk_id, _ in ids_with_scores]
+        placeholders = ",".join("?" * len(chunk_ids))
+        cursor.execute(
+            f"""
+            SELECT id, symbol, chunk_type, file_path, start_line, end_line,
+                   language, code, metadata, created_at
+            FROM chunks WHERE id IN ({placeholders})
+            """,
+            chunk_ids,
+        )
+
+        chunk_lookup = {}
         for row in cursor.fetchall():
-            chunk = self.get_chunk(str(row["id"]))
+            chunk_lookup[str(row["id"])] = Chunk(
+                id=str(row["id"]),
+                symbol=row["symbol"],
+                chunk_type=ChunkType(row["chunk_type"]),
+                file_path=Path(row["file_path"]),
+                start_line=row["start_line"],
+                end_line=row["end_line"],
+                language=Language(row["language"]),
+                code=row["code"],
+                metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            )
+
+        results = []
+        for chunk_id, score in ids_with_scores:
+            chunk = chunk_lookup.get(chunk_id)
             if chunk:
-                # BM25 returns negative scores, normalize to 0-1
-                score = abs(float(row["rank"])) / 100.0  # Rough normalization
                 results.append(SearchResult(chunk=chunk, score=score))
 
         # Apply tier filtering and boosting

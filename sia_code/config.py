@@ -96,6 +96,7 @@ class IndexingConfig(BaseModel):
     )
     include_patterns: list[str] = Field(default_factory=lambda: ["**/*"])
     max_file_size_mb: int = 5
+    chunk_batch_size: int = 500
 
     def get_effective_exclude_patterns(self, root: Path) -> list[str]:
         """Get combined exclude patterns from config and .gitignore files.
