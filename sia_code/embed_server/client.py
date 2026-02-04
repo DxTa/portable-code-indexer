@@ -82,9 +82,19 @@ class EmbedClient:
             # Send request
             sock.sendall(Message.encode(request))
 
-            # Receive response (up to 100MB for large batch embeddings)
-            response_data = sock.recv(100_000_000)
+            # Receive response until newline delimiter
+            response_data = b""
+            while True:
+                chunk = sock.recv(64 * 1024)
+                if not chunk:
+                    break
+                response_data += chunk
+                if b"\n" in response_data:
+                    break
             sock.close()
+
+            if b"\n" in response_data:
+                response_data = response_data.split(b"\n", 1)[0]
 
             # Parse response
             response = Message.decode(response_data)
