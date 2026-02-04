@@ -2,6 +2,7 @@
 
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,13 +33,23 @@ class BaseE2ETest:
         Returns:
             CompletedProcess with stdout, stderr, returncode
         """
-        return subprocess.run(
-            ["sia-code"] + args,
+        cmd = ["sia-code"] + args
+        start = time.perf_counter()
+        print(f"E2E timing start: {cmd} cwd={cwd}")
+        result = subprocess.run(
+            cmd,
             cwd=cwd,
             capture_output=True,
             text=True,
             timeout=timeout,
         )
+        elapsed = time.perf_counter() - start
+        print(
+            "E2E timing end: "
+            f"{cmd} rc={result.returncode} elapsed={elapsed:.2f}s "
+            f"stdout_len={len(result.stdout)} stderr_len={len(result.stderr)}"
+        )
+        return result
 
     def search_json(
         self, query: str, cwd: Path, regex: bool = True, limit: int = 10
