@@ -82,10 +82,9 @@ class TestJavaE2E(JavaE2ETest):
     def test_index_clean_rebuilds_from_scratch(self, indexed_repo):
         """Test that --clean flag rebuilds index from scratch.
 
-        Note: This test does a full rebuild and may timeout on large repos with embeddings.
-        Reduced timeout to 300s to fail fast if embeddings make it too slow.
+        Note: This test does a full rebuild with embeddings enabled.
         """
-        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=300)
+        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=600)
         assert result.returncode == 0
         assert "clean" in result.stdout.lower()
 

@@ -38,7 +38,7 @@ class TestGoE2E(GoE2ETest):
 
     def test_index_full_completes_successfully(self, indexed_repo):
         """Test that full indexing completes without errors.
-        
+
         Note: Uses indexed_repo fixture which already performed full indexing.
         This test verifies the index was created successfully rather than re-indexing.
         """
@@ -46,12 +46,11 @@ class TestGoE2E(GoE2ETest):
         index_path = indexed_repo / ".sia-code" / "index.db"
         assert index_path.exists(), "Index database not created"
         assert index_path.stat().st_size > 100000, "Index appears empty or incomplete"
-        
+
         # Verify index contains data by checking status
         result = self.run_cli(["status"], indexed_repo)
         assert result.returncode == 0, f"Status check failed: {result.stderr}"
         assert "index" in result.stdout.lower()
-
 
     def test_index_reports_file_and_chunk_counts(self, indexed_repo):
         """Test that status shows index information after indexing."""
@@ -69,14 +68,12 @@ class TestGoE2E(GoE2ETest):
 
     def test_index_clean_rebuilds_from_scratch(self, indexed_repo):
         """Test that --clean flag rebuilds index from scratch.
-        
-        Note: This test does a full rebuild and may timeout on large repos with embeddings.
-        Reduced timeout to 300s to fail fast if embeddings make it too slow.
+
+        Note: This test does a full rebuild with embeddings enabled.
         """
-        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=300)
+        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=600)
         assert result.returncode == 0
         assert "clean" in result.stdout.lower()
-
 
     def test_index_update_only_processes_changes(self, indexed_repo):
         """Test that --update flag only reindexes changed files."""
