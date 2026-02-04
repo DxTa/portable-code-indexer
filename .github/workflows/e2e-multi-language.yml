@@ -100,11 +100,6 @@ jobs:
       - name: Install sia-code with dev dependencies
         run: |
           pip install -e ".[dev]"
-
-      - name: Start embedding daemon
-        run: |
-          sia-code embed start --idle-timeout 7200 --log /tmp/sia-embed.log
-          sia-code embed status -v
       
       - name: Clone target repository
         run: |

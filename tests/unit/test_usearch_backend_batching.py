@@ -66,16 +66,10 @@ def test_store_chunks_uses_batch_embedding(tmp_path):
 
     backend.store_chunks_batch(_make_chunks())
 
-    # All texts are cache misses on first call, encoded in one batch
+    # All texts encoded in one batch (2 chunks)
     assert len(dummy.calls) == 1
     assert isinstance(dummy.calls[0], list)
     assert len(dummy.calls[0]) == 2
-
-    # Second _embed_batch with same texts should hit cache - no new encode calls
-    dummy.calls.clear()
-    texts = [f"{chunk.symbol}\n\n{chunk.code}" for chunk in _make_chunks()]
-    backend._embed_batch(texts)
-    assert len(dummy.calls) == 0, "Expected cache hit on second call, got encode calls"
 
     backend.close()
 
@@ -96,15 +90,10 @@ def test_store_chunks_respects_embed_batch_size(tmp_path):
     texts = [f"{chunk.symbol}\n\n{chunk.code}" for chunk in _make_chunks()]
     backend._embed_batch(texts)
 
-    # With batch_size=1, each miss-text is encoded separately
+    # With batch_size=1, texts are encoded in 2 separate batches (one per text)
     assert len(dummy.calls) == 2
     assert all(isinstance(call, list) for call in dummy.calls)
     assert all(len(call) == 1 for call in dummy.calls)
-
-    # Second call should hit cache entirely
-    dummy.calls.clear()
-    backend._embed_batch(texts)
-    assert len(dummy.calls) == 0, "Expected all cache hits on second call"
 
 
 def test_search_lexical_avoids_get_chunk(tmp_path, monkeypatch):

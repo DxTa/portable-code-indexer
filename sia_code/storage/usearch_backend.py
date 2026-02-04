@@ -215,12 +215,6 @@ class UsearchSqliteBackend(StorageBackend):
     def _embed_batch(self, texts: list[str]) -> np.ndarray | None:
         """Embed a batch of texts to vectors.
 
-        Checks the in-memory cache for texts already seen in this session,
-        only encoding cache misses via batch encoding. This avoids re-encoding
-        when incremental indexing re-indexes unchanged chunks that were already
-        embedded earlier in the same session (e.g., test_index_update after
-        test_index_full).
-
         Args:
             texts: List of texts to embed
 
@@ -232,53 +226,26 @@ class UsearchSqliteBackend(StorageBackend):
         if not texts:
             return np.empty((0, self.ndim), dtype=np.float32)
 
-        # Ensure embed cache dict exists (separate from LRU _embed_cached)
-        if not hasattr(self, "_batch_embed_cache"):
-            self._batch_embed_cache: dict[str, np.ndarray] = {}
+        embedder = self._get_embedder()
+        batch_size = self._get_embed_batch_size()
+        encoded = []
 
-        # Check cache first - collect hits and misses
-        results = [None] * len(texts)
-        miss_indices = []
-        miss_texts = []
+        # Process in batches to avoid memory spikes
+        for idx in range(0, len(texts), batch_size):
+            batch = texts[idx : idx + batch_size]
+            vectors = embedder.encode(
+                batch,
+                batch_size=batch_size,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+            )
+            encoded.append(np.asarray(vectors, dtype=np.float32))
 
-        for i, text in enumerate(texts):
-            cached = self._batch_embed_cache.get(text)
-            if cached is not None:
-                results[i] = cached
-            else:
-                miss_indices.append(i)
-                miss_texts.append(text)
-
-        # Encode only cache misses in batches
-        if miss_texts:
-            embedder = self._get_embedder()
-            batch_size = self._get_embed_batch_size()
-            encoded = []
-            for idx in range(0, len(miss_texts), batch_size):
-                batch = miss_texts[idx : idx + batch_size]
-                vectors = embedder.encode(
-                    batch,
-                    batch_size=batch_size,
-                    show_progress_bar=False,
-                    convert_to_numpy=True,
-                )
-                encoded.append(np.asarray(vectors, dtype=np.float32))
-
-            if encoded:
-                all_miss_vectors = np.vstack(encoded) if len(encoded) > 1 else encoded[0]
-                for j, orig_idx in enumerate(miss_indices):
-                    vec = all_miss_vectors[j]
-                    results[orig_idx] = vec
-                    # Populate cache for future hits
-                    self._batch_embed_cache[miss_texts[j]] = vec
-
-        # Evict oldest entries if cache grows too large (>5000 entries)
-        if len(self._batch_embed_cache) > 5000:
-            keys = list(self._batch_embed_cache.keys())
-            for key in keys[:1000]:
-                del self._batch_embed_cache[key]
-
-        return np.vstack(results)
+        # Combine all batches
+        if len(encoded) == 1:
+            return encoded[0]
+        else:
+            return np.vstack(encoded)
 
     def _make_chunk_key(self, chunk_id: int) -> str:
         """Create vector index key for chunk."""
@@ -613,44 +580,48 @@ class UsearchSqliteBackend(StorageBackend):
 
         cursor = self.conn.cursor()
         chunk_ids = []
+        inserted = []  # (original_index, chunk_id) pairs for successful inserts
 
-        vectors = None
-        if self.embedding_enabled:
-            texts = [f"{chunk.symbol}\n\n{chunk.code}" for chunk in chunks]
+        # Phase 1: INSERT all chunks, skip duplicates (UNIQUE constraint on uri)
+        for idx, chunk in enumerate(chunks):
+            uri = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO chunks (uri, symbol, chunk_type, file_path, start_line, end_line, language, code, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        uri,
+                        chunk.symbol,
+                        chunk.chunk_type.value,
+                        str(chunk.file_path),
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.language.value,
+                        chunk.code,
+                        json.dumps(chunk.metadata),
+                    ),
+                )
+                chunk_id = cursor.lastrowid
+                chunk_ids.append(str(chunk_id))
+                inserted.append((idx, chunk_id))
+            except sqlite3.IntegrityError:
+                # Duplicate URI, skip (chunk already exists)
+                continue
+
+        # Phase 2: Batch-embed ONLY successfully inserted chunks
+        if self.embedding_enabled and inserted:
+            texts = [f"{chunks[i].symbol}\n\n{chunks[i].code}" for i, _ in inserted]
             vectors = self._embed_batch(texts)
 
-        for idx, chunk in enumerate(chunks):
-            # Insert into SQLite
-            uri = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
-            cursor.execute(
-                """
-                INSERT INTO chunks (uri, symbol, chunk_type, file_path, start_line, end_line, language, code, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    uri,
-                    chunk.symbol,
-                    chunk.chunk_type.value,
-                    str(chunk.file_path),
-                    chunk.start_line,
-                    chunk.end_line,
-                    chunk.language.value,
-                    chunk.code,
-                    json.dumps(chunk.metadata),
-                ),
-            )
-            chunk_id = cursor.lastrowid
+            if vectors is not None:
+                for j, (_, chunk_id) in enumerate(inserted):
+                    self.vector_index.add(chunk_id, vectors[j])
 
-            # Embed and add to vector index (if embeddings enabled)
-            if self.embedding_enabled and vectors is not None:
-                vector = vectors[idx]
-                self.vector_index.add(chunk_id, vector)  # Use numeric ID, we'll prefix on search
-
-                # Track that we modified the index after viewing
-                if getattr(self, "_is_viewed", False):
-                    self._modified_after_view = True
-
-            chunk_ids.append(str(chunk_id))
+                    # Track that we modified the index after viewing
+                    if getattr(self, "_is_viewed", False):
+                        self._modified_after_view = True
 
         self.conn.commit()
         return chunk_ids
