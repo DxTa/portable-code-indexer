@@ -344,6 +344,23 @@ def start_daemon(
         foreground: Run in foreground (don't daemonize)
         idle_timeout_seconds: Unload model after this many seconds of inactivity
     """
+    status = daemon_status(socket_path=socket_path, pid_path=pid_path)
+    if status.get("running"):
+        print("Daemon already running")
+        return
+
+    reason = status.get("reason", "")
+    pid_file = Path(pid_path)
+    socket_file = Path(socket_path)
+
+    if pid_file.exists() and reason in {"Stale PID file", "Error checking PID"}:
+        pid_file.unlink(missing_ok=True)
+    if socket_file.exists() and (
+        reason in {"No PID file", "Stale PID file", "No socket file"}
+        or reason.startswith("Health check failed")
+    ):
+        socket_file.unlink(missing_ok=True)
+
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,

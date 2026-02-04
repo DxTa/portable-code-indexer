@@ -15,7 +15,7 @@ class DummyEmbedder:
         self.ndim = ndim
         self.calls = []
 
-    def encode(self, texts, convert_to_numpy=True):
+    def encode(self, texts, batch_size=None, show_progress_bar=False, convert_to_numpy=True, **_):
         self.calls.append(texts)
         if isinstance(texts, list):
             vectors = [self._encode_text(text) for text in texts]
@@ -71,6 +71,27 @@ def test_store_chunks_uses_batch_embedding(tmp_path):
     assert len(dummy.calls[0]) == 2
 
     backend.close()
+
+
+def test_store_chunks_respects_embed_batch_size(tmp_path):
+    backend = UsearchSqliteBackend(
+        path=tmp_path / ".sia-code",
+        embedding_enabled=True,
+        embedding_model="dummy",
+        ndim=4,
+        dtype="f32",
+    )
+    dummy = DummyEmbedder(ndim=4)
+    backend._embedder = dummy
+    backend._get_embedder = lambda: dummy
+    backend._get_embed_batch_size = lambda: 1
+
+    texts = [f"{chunk.symbol}\n\n{chunk.code}" for chunk in _make_chunks()]
+    backend._embed_batch(texts)
+
+    assert len(dummy.calls) == 2
+    assert all(isinstance(call, list) for call in dummy.calls)
+    assert all(len(call) == 1 for call in dummy.calls)
 
 
 def test_search_lexical_avoids_get_chunk(tmp_path, monkeypatch):

@@ -180,6 +180,38 @@ class UsearchSqliteBackend(StorageBackend):
 
         return self._embedding_cache(text)
 
+    def _get_embed_batch_size(self) -> int:
+        """Compute embedding batch size based on host capacity."""
+        if getattr(self, "_embed_batch_size", None):
+            return self._embed_batch_size
+
+        import os
+
+        try:
+            import psutil
+
+            mem_bytes = psutil.virtual_memory().total
+            mem_gb = mem_bytes / (1024**3)
+        except Exception:
+            mem_gb = 8.0
+
+        if mem_gb < 6:
+            mem_based = 8
+        elif mem_gb < 12:
+            mem_based = 16
+        elif mem_gb < 24:
+            mem_based = 32
+        else:
+            mem_based = 64
+
+        cpu_count = os.cpu_count() or 2
+        max_by_cpu = max(8, cpu_count * 8)
+        size = min(mem_based, max_by_cpu)
+        size = max(8, min(64, size))
+
+        self._embed_batch_size = int(size)
+        return self._embed_batch_size
+
     def _embed_batch(self, texts: list[str]) -> np.ndarray | None:
         """Embed a batch of texts to vectors.
 
@@ -195,8 +227,23 @@ class UsearchSqliteBackend(StorageBackend):
             return np.empty((0, self.ndim), dtype=np.float32)
 
         embedder = self._get_embedder()
-        vectors = embedder.encode(texts, convert_to_numpy=True)
-        return np.array(vectors)
+        batch_size = self._get_embed_batch_size()
+        batches = []
+        for idx in range(0, len(texts), batch_size):
+            batch = texts[idx : idx + batch_size]
+            vectors = embedder.encode(
+                batch,
+                batch_size=batch_size,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+            )
+            batches.append(np.asarray(vectors, dtype=np.float32))
+
+        if not batches:
+            return np.empty((0, self.ndim), dtype=np.float32)
+        if len(batches) == 1:
+            return batches[0]
+        return np.vstack(batches)
 
     def _make_chunk_key(self, chunk_id: int) -> str:
         """Create vector index key for chunk."""

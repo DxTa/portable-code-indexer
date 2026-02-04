@@ -166,6 +166,9 @@ class IndexingCoordinator:
         # Buffer chunks to reduce write overhead
         pending_chunks: list = []
         batch_size = max(1, self.config.indexing.chunk_batch_size)
+        if self.backend.embedding_enabled and hasattr(self.backend, "_get_embed_batch_size"):
+            embed_batch = self.backend._get_embed_batch_size()
+            batch_size = min(batch_size, max(1, embed_batch * 8))
 
         def flush_chunks() -> None:
             if pending_chunks:
@@ -288,6 +291,9 @@ class IndexingCoordinator:
         # Buffer chunks to reduce write overhead
         pending_chunks: list = []
         batch_size = max(1, self.config.indexing.chunk_batch_size)
+        if self.backend.embedding_enabled and hasattr(self.backend, "_get_embed_batch_size"):
+            embed_batch = self.backend._get_embed_batch_size()
+            batch_size = min(batch_size, max(1, embed_batch * 8))
 
         def flush_chunks() -> None:
             if pending_chunks:
