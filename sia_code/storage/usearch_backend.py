@@ -44,8 +44,8 @@ class UsearchSqliteBackend(StorageBackend):
         self,
         path: Path,
         embedding_enabled: bool = True,
-        embedding_model: str = "BAAI/bge-small-en-v1.5",
-        ndim: int = 384,
+        embedding_model: str = "BAAI/bge-base-en-v1.5",
+        ndim: int = 768,
         dtype: str = "f16",
         metric: str = "cos",
         **kwargs,
@@ -180,6 +180,73 @@ class UsearchSqliteBackend(StorageBackend):
 
         return self._embedding_cache(text)
 
+    def _get_embed_batch_size(self) -> int:
+        """Compute embedding batch size based on host capacity."""
+        if getattr(self, "_embed_batch_size", None):
+            return self._embed_batch_size
+
+        import os
+
+        try:
+            import psutil
+
+            mem_bytes = psutil.virtual_memory().total
+            mem_gb = mem_bytes / (1024**3)
+        except Exception:
+            mem_gb = 8.0
+
+        if mem_gb < 6:
+            mem_based = 8
+        elif mem_gb < 12:
+            mem_based = 16
+        elif mem_gb < 24:
+            mem_based = 32
+        else:
+            mem_based = 64
+
+        cpu_count = os.cpu_count() or 2
+        max_by_cpu = max(8, cpu_count * 8)
+        size = min(mem_based, max_by_cpu)
+        size = max(8, min(64, size))
+
+        self._embed_batch_size = int(size)
+        return self._embed_batch_size
+
+    def _embed_batch(self, texts: list[str]) -> np.ndarray | None:
+        """Embed a batch of texts to vectors.
+
+        Args:
+            texts: List of texts to embed
+
+        Returns:
+            Array of embedding vectors, or None if embeddings disabled
+        """
+        if not self.embedding_enabled:
+            return None
+        if not texts:
+            return np.empty((0, self.ndim), dtype=np.float32)
+
+        embedder = self._get_embedder()
+        batch_size = self._get_embed_batch_size()
+        encoded = []
+
+        # Process in batches to avoid memory spikes
+        for idx in range(0, len(texts), batch_size):
+            batch = texts[idx : idx + batch_size]
+            vectors = embedder.encode(
+                batch,
+                batch_size=batch_size,
+                show_progress_bar=False,
+                convert_to_numpy=True,
+            )
+            encoded.append(np.asarray(vectors, dtype=np.float32))
+
+        # Combine all batches
+        if len(encoded) == 1:
+            return encoded[0]
+        else:
+            return np.vstack(encoded)
+
     def _make_chunk_key(self, chunk_id: int) -> str:
         """Create vector index key for chunk."""
         return f"{self.KEY_PREFIX_CHUNK}{chunk_id}"
@@ -287,6 +354,16 @@ class UsearchSqliteBackend(StorageBackend):
         # Only view if the file is not empty
         if self.vector_path.stat().st_size > 0:
             self.vector_index.view(str(self.vector_path))
+
+            # Dimension mismatch check - verify loaded index matches config
+            if len(self.vector_index) > 0 and self.vector_index.ndim != self.ndim:
+                existing_ndim = self.vector_index.ndim
+                raise ValueError(
+                    f"Index dimension mismatch: existing index has {existing_ndim}d vectors "
+                    f"but config expects {self.ndim}d. This typically happens after changing "
+                    f"the embedding model (e.g., bge-base-768d vs bge-small-384d). "
+                    f"Run 'sia-code index --clean' to rebuild with current model settings."
+                )
 
         # Mark as viewed (read-only memory-mapped, do NOT save on close)
         self._is_viewed = True
@@ -513,39 +590,53 @@ class UsearchSqliteBackend(StorageBackend):
 
         cursor = self.conn.cursor()
         chunk_ids = []
+        inserted = []  # (original_index, chunk_id) pairs for successful inserts
 
-        for chunk in chunks:
-            # Insert into SQLite
+        # Phase 1: INSERT all chunks, skip duplicates (UNIQUE constraint on uri)
+        for idx, chunk in enumerate(chunks):
             uri = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
-            cursor.execute(
-                """
-                INSERT INTO chunks (uri, symbol, chunk_type, file_path, start_line, end_line, language, code, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    uri,
-                    chunk.symbol,
-                    chunk.chunk_type.value,
-                    str(chunk.file_path),
-                    chunk.start_line,
-                    chunk.end_line,
-                    chunk.language.value,
-                    chunk.code,
-                    json.dumps(chunk.metadata),
-                ),
-            )
-            chunk_id = cursor.lastrowid
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO chunks (uri, symbol, chunk_type, file_path, start_line, end_line, language, code, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        uri,
+                        chunk.symbol,
+                        chunk.chunk_type.value,
+                        str(chunk.file_path),
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.language.value,
+                        chunk.code,
+                        json.dumps(chunk.metadata),
+                    ),
+                )
+                chunk_id = cursor.lastrowid
+                chunk_ids.append(str(chunk_id))
+                inserted.append((idx, chunk_id))
+            except sqlite3.IntegrityError:
+                # Duplicate URI, skip (chunk already exists)
+                continue
 
-            # Embed and add to vector index (if embeddings enabled)
-            if self.embedding_enabled:
-                vector = self._embed(f"{chunk.symbol}\n\n{chunk.code}")
-                self.vector_index.add(chunk_id, vector)  # Use numeric ID, we'll prefix on search
+        # Phase 2: Batch-embed ONLY successfully inserted chunks
+        if self.embedding_enabled and inserted:
+            try:
+                texts = [f"{chunks[i].symbol}\n\n{chunks[i].code}" for i, _ in inserted]
+                vectors = self._embed_batch(texts)
 
-                # Track that we modified the index after viewing
-                if getattr(self, "_is_viewed", False):
-                    self._modified_after_view = True
+                if vectors is not None:
+                    for j, (_, chunk_id) in enumerate(inserted):
+                        self.vector_index.add(chunk_id, vectors[j])
 
-            chunk_ids.append(str(chunk_id))
+                        # Track that we modified the index after viewing
+                        if getattr(self, "_is_viewed", False):
+                            self._modified_after_view = True
+            except Exception:
+                # Rollback SQLite inserts to avoid chunks without embeddings
+                self.conn.rollback()
+                raise
 
         self.conn.commit()
         return chunk_ids
@@ -750,15 +841,45 @@ class UsearchSqliteBackend(StorageBackend):
         # Search usearch index
         matches = self.vector_index.search(query_vector, k)
 
-        # Convert to SearchResults
-        results = []
+        ids_with_scores = []
         for key, distance in zip(matches.keys, matches.distances):
-            # Keys are numeric chunk IDs
-            chunk = self.get_chunk(str(key))
+            score = 1.0 - float(distance)
+            ids_with_scores.append((str(key), score))
+
+        if not ids_with_scores:
+            return []
+
+        chunk_ids = [chunk_id for chunk_id, _ in ids_with_scores]
+        cursor = self.conn.cursor()
+        placeholders = ",".join("?" * len(chunk_ids))
+        cursor.execute(
+            f"""
+            SELECT id, symbol, chunk_type, file_path, start_line, end_line,
+                   language, code, metadata, created_at
+            FROM chunks WHERE id IN ({placeholders})
+            """,
+            chunk_ids,
+        )
+
+        chunk_lookup = {}
+        for row in cursor.fetchall():
+            chunk_lookup[str(row["id"])] = Chunk(
+                id=str(row["id"]),
+                symbol=row["symbol"],
+                chunk_type=ChunkType(row["chunk_type"]),
+                file_path=Path(row["file_path"]),
+                start_line=row["start_line"],
+                end_line=row["end_line"],
+                language=Language(row["language"]),
+                code=row["code"],
+                metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            )
+
+        results = []
+        for chunk_id, score in ids_with_scores:
+            chunk = chunk_lookup.get(chunk_id)
             if chunk:
-                # Convert distance to similarity score (0-1, higher is better)
-                # For cosine distance, score = 1 - distance
-                score = 1.0 - float(distance)
                 results.append(SearchResult(chunk=chunk, score=score))
 
         # Apply tier filtering and boosting
@@ -799,12 +920,45 @@ class UsearchSqliteBackend(StorageBackend):
             (sanitized_query, k),
         )
 
-        results = []
+        rows = cursor.fetchall()
+        if not rows:
+            return []
+
+        ids_with_scores = []
+        for row in rows:
+            score = abs(float(row["rank"])) / 100.0  # Rough normalization
+            ids_with_scores.append((str(row["id"]), score))
+
+        chunk_ids = [chunk_id for chunk_id, _ in ids_with_scores]
+        placeholders = ",".join("?" * len(chunk_ids))
+        cursor.execute(
+            f"""
+            SELECT id, symbol, chunk_type, file_path, start_line, end_line,
+                   language, code, metadata, created_at
+            FROM chunks WHERE id IN ({placeholders})
+            """,
+            chunk_ids,
+        )
+
+        chunk_lookup = {}
         for row in cursor.fetchall():
-            chunk = self.get_chunk(str(row["id"]))
+            chunk_lookup[str(row["id"])] = Chunk(
+                id=str(row["id"]),
+                symbol=row["symbol"],
+                chunk_type=ChunkType(row["chunk_type"]),
+                file_path=Path(row["file_path"]),
+                start_line=row["start_line"],
+                end_line=row["end_line"],
+                language=Language(row["language"]),
+                code=row["code"],
+                metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+                created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            )
+
+        results = []
+        for chunk_id, score in ids_with_scores:
+            chunk = chunk_lookup.get(chunk_id)
             if chunk:
-                # BM25 returns negative scores, normalize to 0-1
-                score = abs(float(row["rank"])) / 100.0  # Rough normalization
                 results.append(SearchResult(chunk=chunk, score=score))
 
         # Apply tier filtering and boosting

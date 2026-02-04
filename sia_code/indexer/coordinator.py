@@ -163,6 +163,18 @@ class IndexingCoordinator:
 
         stats = self._create_index_stats(len(files))
 
+        # Buffer chunks to reduce write overhead
+        pending_chunks: list = []
+        batch_size = max(1, self.config.indexing.chunk_batch_size)
+        if self.backend.embedding_enabled and hasattr(self.backend, "_get_embed_batch_size"):
+            embed_batch = self.backend._get_embed_batch_size()
+            batch_size = min(batch_size, max(1, embed_batch * 8))
+
+        def flush_chunks() -> None:
+            if pending_chunks:
+                self.backend.store_chunks_batch(pending_chunks)
+                pending_chunks.clear()
+
         # Process each file
         for idx, file_path in enumerate(files, 1):
             # Update progress
@@ -193,8 +205,10 @@ class IndexingCoordinator:
                     except OSError:
                         pass
 
-                    # Store chunks
-                    self.backend.store_chunks_batch(chunks)
+                    # Buffer chunks and flush when threshold reached
+                    pending_chunks.extend(chunks)
+                    if len(pending_chunks) >= batch_size:
+                        flush_chunks()
                     stats["indexed_files"] += 1
                     stats["total_chunks"] += len(chunks)
                     metrics.files_processed += 1
@@ -210,6 +224,15 @@ class IndexingCoordinator:
                 stats["errors"].append(f"{file_path}: {error_msg}")
                 metrics.errors_count += 1
                 logger.exception(f"Unexpected error indexing {file_path}")
+
+        # Flush any remaining chunks
+        try:
+            flush_chunks()
+        except Exception as e:
+            error_msg = f"Error flushing final chunk batch: {str(e)}"
+            stats["errors"].append(error_msg)
+            metrics.errors_count += 1
+            logger.exception("Error flushing final chunk batch")
 
         # Finalize metrics
         metrics.finish()
@@ -271,6 +294,18 @@ class IndexingCoordinator:
             greedy_merge=self.config.chunking.greedy_merge,
         )
 
+        # Buffer chunks to reduce write overhead
+        pending_chunks: list = []
+        batch_size = max(1, self.config.indexing.chunk_batch_size)
+        if self.backend.embedding_enabled and hasattr(self.backend, "_get_embed_batch_size"):
+            embed_batch = self.backend._get_embed_batch_size()
+            batch_size = min(batch_size, max(1, embed_batch * 8))
+
+        def flush_chunks() -> None:
+            if pending_chunks:
+                self.backend.store_chunks_batch(pending_chunks)
+                pending_chunks.clear()
+
         # Process files in parallel
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks
@@ -300,8 +335,10 @@ class IndexingCoordinator:
                         # Track metrics
                         metrics.bytes_processed += file_size
 
-                        # Store chunks
-                        self.backend.store_chunks_batch(chunks)
+                        # Buffer chunks and flush when threshold reached
+                        pending_chunks.extend(chunks)
+                        if len(pending_chunks) >= batch_size:
+                            flush_chunks()
                         stats["indexed_files"] += 1
                         stats["total_chunks"] += len(chunks)
                         metrics.files_processed += 1
@@ -318,6 +355,15 @@ class IndexingCoordinator:
                     stats["errors"].append(f"{file_path}: {error_msg}")
                     metrics.errors_count += 1
                     logger.exception(f"Unexpected error processing {file_path}")
+
+        # Flush any remaining chunks
+        try:
+            flush_chunks()
+        except Exception as e:
+            error_msg = f"Error flushing final chunk batch: {str(e)}"
+            stats["errors"].append(error_msg)
+            metrics.errors_count += 1
+            logger.exception("Error flushing final chunk batch")
 
         # Finalize metrics
         metrics.finish()

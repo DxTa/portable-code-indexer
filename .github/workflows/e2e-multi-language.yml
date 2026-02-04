@@ -11,7 +11,7 @@ jobs:
   e2e-tests:
     name: E2E (${{ matrix.language }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -97,6 +97,12 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub/models--BAAI--bge-small-en-v1.5
+          key: hf-bge-small-en-v1.5
+      
       - name: Install sia-code with dev dependencies
         run: |
           pip install -e ".[dev]"
@@ -128,6 +134,11 @@ jobs:
           E2E_LANGUAGE: ${{ matrix.language }}
           E2E_KEYWORD: ${{ matrix.keyword }}
           E2E_SYMBOL: ${{ matrix.symbol }}
+
+      - name: Embedding daemon status
+        if: always()
+        run: |
+          sia-code embed status -v
       
       - name: Upload test results
         uses: actions/upload-artifact@v4

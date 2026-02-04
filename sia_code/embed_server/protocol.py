@@ -1,20 +1,65 @@
 """Protocol for embedding server communication."""
 
 import json
+import struct
 
 
 class Message:
-    """Base message class for socket communication."""
+    """Base message class for socket communication with length-prefixed framing."""
+
+    HEADER_SIZE = 4  # 4 bytes for uint32 big-endian length
 
     @staticmethod
     def encode(data: dict) -> bytes:
-        """Encode message to JSON bytes with newline delimiter."""
-        return (json.dumps(data) + "\n").encode("utf-8")
+        """Encode message with 4-byte length prefix.
+
+        Format: [4-byte length header (big-endian uint32)][JSON payload]
+        """
+        payload = json.dumps(data).encode("utf-8")
+        header = struct.pack(">I", len(payload))
+        return header + payload
 
     @staticmethod
     def decode(data: bytes) -> dict:
         """Decode JSON bytes to message dict."""
-        return json.loads(data.decode("utf-8").strip())
+        return json.loads(data.decode("utf-8"))
+
+    @staticmethod
+    def read_from_socket(sock, max_bytes: int = 50_000_000) -> bytes:
+        """Read a length-prefixed message from socket.
+
+        Args:
+            sock: Socket to read from
+            max_bytes: Maximum message size (default 50MB)
+
+        Returns:
+            Message payload bytes (without the length prefix)
+
+        Raises:
+            ConnectionError: If connection closes unexpectedly
+            ValueError: If message exceeds max_bytes
+        """
+        # Read 4-byte header
+        header = b""
+        while len(header) < Message.HEADER_SIZE:
+            chunk = sock.recv(Message.HEADER_SIZE - len(header))
+            if not chunk:
+                raise ConnectionError("Connection closed while reading header")
+            header += chunk
+
+        msg_len = struct.unpack(">I", header)[0]
+        if msg_len > max_bytes:
+            raise ValueError(f"Message size {msg_len} exceeds {max_bytes} limit")
+
+        # Read exactly msg_len bytes
+        data = b""
+        while len(data) < msg_len:
+            chunk = sock.recv(min(64 * 1024, msg_len - len(data)))
+            if not chunk:
+                raise ConnectionError("Connection closed while reading payload")
+            data += chunk
+
+        return data
 
 
 class EmbedRequest:

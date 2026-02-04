@@ -1,5 +1,6 @@
 """Shared fixtures for E2E tests across multiple language repositories."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -118,6 +119,16 @@ def initialized_repo(target_repo):
     assert (sia_dir / "config.json").exists(), "config.json not created"
     assert (sia_dir / "index.db").exists(), "index.db not created"
 
+    # Use smaller/faster embedding model for CI to avoid CPU timeout
+    # bge-small is ~3x faster than bge-base on CPU, still tests full embedding pipeline
+    config_path = sia_dir / "config.json"
+    with open(config_path) as f:
+        ci_config = json.load(f)
+    ci_config["embedding"]["model"] = "BAAI/bge-small-en-v1.5"
+    ci_config["embedding"]["dimensions"] = 384
+    with open(config_path, "w") as f:
+        json.dump(ci_config, f, indent=2)
+
     return target_repo
 
 
@@ -127,6 +138,9 @@ def indexed_repo(initialized_repo):
 
     This fixture indexes the repository once per test session,
     making all subsequent tests faster.
+
+    Uses --clean to recreate index with CI-optimized dimensions (384d bge-small)
+    after initialized_repo modifies the config from default (768d bge-base).
     """
     # Check if index already has content (skip re-indexing if it does)
     index_path = initialized_repo / ".sia-code" / "index.db"
@@ -135,7 +149,7 @@ def indexed_repo(initialized_repo):
         return initialized_repo
 
     result = subprocess.run(
-        ["sia-code", "index", "."],
+        ["sia-code", "index", "--clean", "."],
         cwd=initialized_repo,
         capture_output=True,
         text=True,

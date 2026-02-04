@@ -82,8 +82,8 @@ class EmbedClient:
             # Send request
             sock.sendall(Message.encode(request))
 
-            # Receive response (up to 100MB for large batch embeddings)
-            response_data = sock.recv(100_000_000)
+            # Receive response using length-prefixed framing
+            response_data = Message.read_from_socket(sock)
             sock.close()
 
             # Parse response
