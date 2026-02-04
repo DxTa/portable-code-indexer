@@ -226,7 +226,13 @@ class IndexingCoordinator:
                 logger.exception(f"Unexpected error indexing {file_path}")
 
         # Flush any remaining chunks
-        flush_chunks()
+        try:
+            flush_chunks()
+        except Exception as e:
+            error_msg = f"Error flushing final chunk batch: {str(e)}"
+            stats["errors"].append(error_msg)
+            metrics.errors_count += 1
+            logger.exception("Error flushing final chunk batch")
 
         # Finalize metrics
         metrics.finish()
@@ -351,7 +357,13 @@ class IndexingCoordinator:
                     logger.exception(f"Unexpected error processing {file_path}")
 
         # Flush any remaining chunks
-        flush_chunks()
+        try:
+            flush_chunks()
+        except Exception as e:
+            error_msg = f"Error flushing final chunk batch: {str(e)}"
+            stats["errors"].append(error_msg)
+            metrics.errors_count += 1
+            logger.exception("Error flushing final chunk batch")
 
         # Finalize metrics
         metrics.finish()

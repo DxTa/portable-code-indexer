@@ -4,14 +4,16 @@ from sia_code.embed_server.client import EmbedClient
 from sia_code.embed_server.protocol import Message
 
 
-def test_send_request_reads_chunked_response(monkeypatch):
+def test_send_request_reads_length_prefixed_response(monkeypatch):
+    """Test that client correctly reads length-prefixed messages in chunks."""
     response = {"id": "1", "result": {"status": "ok"}}
+    # Encode with 4-byte length prefix
     encoded = Message.encode(response)
-    chunks = [encoded[:10], encoded[10:20], encoded[20:]]
 
     class FakeSocket:
         def __init__(self):
-            self._chunks = list(chunks)
+            self._data = encoded
+            self._pos = 0
 
         def settimeout(self, _timeout):
             pass
@@ -22,10 +24,13 @@ def test_send_request_reads_chunked_response(monkeypatch):
         def sendall(self, _data):
             pass
 
-        def recv(self, _size):
-            if self._chunks:
-                return self._chunks.pop(0)
-            return b""
+        def recv(self, size):
+            # Simulate reading from socket buffer byte by byte
+            if self._pos >= len(self._data):
+                return b""
+            chunk = self._data[self._pos : self._pos + size]
+            self._pos += len(chunk)
+            return chunk
 
         def close(self):
             pass

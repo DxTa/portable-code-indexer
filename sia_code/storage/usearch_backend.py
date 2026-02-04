@@ -44,8 +44,8 @@ class UsearchSqliteBackend(StorageBackend):
         self,
         path: Path,
         embedding_enabled: bool = True,
-        embedding_model: str = "BAAI/bge-small-en-v1.5",
-        ndim: int = 384,
+        embedding_model: str = "BAAI/bge-base-en-v1.5",
+        ndim: int = 768,
         dtype: str = "f16",
         metric: str = "cos",
         **kwargs,
@@ -355,6 +355,16 @@ class UsearchSqliteBackend(StorageBackend):
         if self.vector_path.stat().st_size > 0:
             self.vector_index.view(str(self.vector_path))
 
+            # Dimension mismatch check - verify loaded index matches config
+            if len(self.vector_index) > 0 and self.vector_index.ndim != self.ndim:
+                existing_ndim = self.vector_index.ndim
+                raise ValueError(
+                    f"Index dimension mismatch: existing index has {existing_ndim}d vectors "
+                    f"but config expects {self.ndim}d. This typically happens after changing "
+                    f"the embedding model (e.g., bge-base-768d vs bge-small-384d). "
+                    f"Run 'sia-code index --clean' to rebuild with current model settings."
+                )
+
         # Mark as viewed (read-only memory-mapped, do NOT save on close)
         self._is_viewed = True
         self._modified_after_view = False  # Track if vectors added after view
@@ -612,16 +622,21 @@ class UsearchSqliteBackend(StorageBackend):
 
         # Phase 2: Batch-embed ONLY successfully inserted chunks
         if self.embedding_enabled and inserted:
-            texts = [f"{chunks[i].symbol}\n\n{chunks[i].code}" for i, _ in inserted]
-            vectors = self._embed_batch(texts)
+            try:
+                texts = [f"{chunks[i].symbol}\n\n{chunks[i].code}" for i, _ in inserted]
+                vectors = self._embed_batch(texts)
 
-            if vectors is not None:
-                for j, (_, chunk_id) in enumerate(inserted):
-                    self.vector_index.add(chunk_id, vectors[j])
+                if vectors is not None:
+                    for j, (_, chunk_id) in enumerate(inserted):
+                        self.vector_index.add(chunk_id, vectors[j])
 
-                    # Track that we modified the index after viewing
-                    if getattr(self, "_is_viewed", False):
-                        self._modified_after_view = True
+                        # Track that we modified the index after viewing
+                        if getattr(self, "_is_viewed", False):
+                            self._modified_after_view = True
+            except Exception:
+                # Rollback SQLite inserts to avoid chunks without embeddings
+                self.conn.rollback()
+                raise
 
         self.conn.commit()
         return chunk_ids

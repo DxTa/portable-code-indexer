@@ -209,19 +209,8 @@ class EmbedDaemon:
             conn: Client socket connection
         """
         try:
-            # Read request until newline delimiter
-            data = b""
-            max_bytes = 50_000_000
-            while True:
-                chunk = conn.recv(64 * 1024)
-                if not chunk:
-                    break
-                data += chunk
-                if len(data) > max_bytes:
-                    raise ValueError("Request exceeds 50MB limit")
-                if b"\n" in data:
-                    data = data.split(b"\n", 1)[0]
-                    break
+            # Read request using length-prefixed framing
+            data = Message.read_from_socket(conn)
             if not data:
                 return
 

@@ -69,9 +69,9 @@ class EmbeddingConfig(BaseModel):
 
     enabled: bool = True
     provider: str = "huggingface"  # Deprecated - provider auto-detected from model name
-    model: str = "BAAI/bge-small-en-v1.5"  # Model name (see supported models above)
+    model: str = "BAAI/bge-base-en-v1.5"  # Model name (see supported models above)
     api_key_env: str = ""  # Environment variable for API key (not needed for local models)
-    dimensions: int = 384  # Embedding dimensions (auto-detected for most models)
+    dimensions: int = 768  # Embedding dimensions (auto-detected for most models)
 
 
 class IndexingConfig(BaseModel):
