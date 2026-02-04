@@ -215,6 +215,12 @@ class UsearchSqliteBackend(StorageBackend):
     def _embed_batch(self, texts: list[str]) -> np.ndarray | None:
         """Embed a batch of texts to vectors.
 
+        Checks the in-memory cache for texts already seen in this session,
+        only encoding cache misses via batch encoding. This avoids re-encoding
+        when incremental indexing re-indexes unchanged chunks that were already
+        embedded earlier in the same session (e.g., test_index_update after
+        test_index_full).
+
         Args:
             texts: List of texts to embed
 
@@ -226,24 +232,53 @@ class UsearchSqliteBackend(StorageBackend):
         if not texts:
             return np.empty((0, self.ndim), dtype=np.float32)
 
-        embedder = self._get_embedder()
-        batch_size = self._get_embed_batch_size()
-        batches = []
-        for idx in range(0, len(texts), batch_size):
-            batch = texts[idx : idx + batch_size]
-            vectors = embedder.encode(
-                batch,
-                batch_size=batch_size,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-            )
-            batches.append(np.asarray(vectors, dtype=np.float32))
+        # Ensure embed cache dict exists (separate from LRU _embed_cached)
+        if not hasattr(self, "_batch_embed_cache"):
+            self._batch_embed_cache: dict[str, np.ndarray] = {}
 
-        if not batches:
-            return np.empty((0, self.ndim), dtype=np.float32)
-        if len(batches) == 1:
-            return batches[0]
-        return np.vstack(batches)
+        # Check cache first - collect hits and misses
+        results = [None] * len(texts)
+        miss_indices = []
+        miss_texts = []
+
+        for i, text in enumerate(texts):
+            cached = self._batch_embed_cache.get(text)
+            if cached is not None:
+                results[i] = cached
+            else:
+                miss_indices.append(i)
+                miss_texts.append(text)
+
+        # Encode only cache misses in batches
+        if miss_texts:
+            embedder = self._get_embedder()
+            batch_size = self._get_embed_batch_size()
+            encoded = []
+            for idx in range(0, len(miss_texts), batch_size):
+                batch = miss_texts[idx : idx + batch_size]
+                vectors = embedder.encode(
+                    batch,
+                    batch_size=batch_size,
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                )
+                encoded.append(np.asarray(vectors, dtype=np.float32))
+
+            if encoded:
+                all_miss_vectors = np.vstack(encoded) if len(encoded) > 1 else encoded[0]
+                for j, orig_idx in enumerate(miss_indices):
+                    vec = all_miss_vectors[j]
+                    results[orig_idx] = vec
+                    # Populate cache for future hits
+                    self._batch_embed_cache[miss_texts[j]] = vec
+
+        # Evict oldest entries if cache grows too large (>5000 entries)
+        if len(self._batch_embed_cache) > 5000:
+            keys = list(self._batch_embed_cache.keys())
+            for key in keys[:1000]:
+                del self._batch_embed_cache[key]
+
+        return np.vstack(results)
 
     def _make_chunk_key(self, chunk_id: int) -> str:
         """Create vector index key for chunk."""
