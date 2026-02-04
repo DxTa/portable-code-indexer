@@ -36,11 +36,22 @@ class TestPythonE2E(PythonE2ETest):
 
     # ===== INDEXING TESTS =====
 
-    def test_index_full_completes_successfully(self, initialized_repo):
-        """Test that full indexing completes without errors."""
-        result = self.run_cli(["index", "."], initialized_repo, timeout=600)
-        assert result.returncode == 0, f"Indexing failed: {result.stderr}"
-        assert "complete" in result.stdout.lower() or "indexed" in result.stdout.lower()
+    def test_index_full_completes_successfully(self, indexed_repo):
+        """Test that full indexing completes without errors.
+        
+        Note: Uses indexed_repo fixture which already performed full indexing.
+        This test verifies the index was created successfully rather than re-indexing.
+        """
+        # Verify index was created
+        index_path = indexed_repo / ".sia-code" / "index.db"
+        assert index_path.exists(), "Index database not created"
+        assert index_path.stat().st_size > 100000, "Index appears empty or incomplete"
+        
+        # Verify index contains data by checking status
+        result = self.run_cli(["status"], indexed_repo)
+        assert result.returncode == 0, f"Status check failed: {result.stderr}"
+        assert "index" in result.stdout.lower()
+
 
     def test_index_reports_file_and_chunk_counts(self, indexed_repo):
         """Test that status shows index information after indexing."""
@@ -57,10 +68,15 @@ class TestPythonE2E(PythonE2ETest):
         assert len(git_files) == 0
 
     def test_index_clean_rebuilds_from_scratch(self, indexed_repo):
-        """Test that --clean flag rebuilds index."""
-        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=600)
+        """Test that --clean flag rebuilds index from scratch.
+        
+        Note: This test does a full rebuild and may timeout on large repos with embeddings.
+        Reduced timeout to 300s to fail fast if embeddings make it too slow.
+        """
+        result = self.run_cli(["index", "--clean", "."], indexed_repo, timeout=300)
         assert result.returncode == 0
         assert "clean" in result.stdout.lower()
+
 
     def test_index_update_only_processes_changes(self, indexed_repo):
         """Test that --update flag only reindexes changed files."""
