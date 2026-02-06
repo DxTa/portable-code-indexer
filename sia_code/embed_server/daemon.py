@@ -256,6 +256,17 @@ class EmbedDaemon:
             # Send response
             conn.sendall(Message.encode(response))
 
+        except ConnectionError as e:
+            if "reading header" in str(e):
+                logger.debug("Connection closed before header read")
+                return
+            logger.error(f"Connection error: {e}", exc_info=True)
+            # Try to send error response
+            try:
+                response = ErrorResponse.create("unknown", str(e), "ServerError")
+                conn.sendall(Message.encode(response))
+            except Exception:
+                pass  # Connection may be closed
         except Exception as e:
             logger.error(f"Connection error: {e}", exc_info=True)
             # Try to send error response

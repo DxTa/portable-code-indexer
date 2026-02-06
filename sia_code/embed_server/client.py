@@ -50,12 +50,10 @@ class EmbedClient:
         if not socket_file.exists():
             return False
 
-        # Try to connect
+        # Validate protocol with a quick health check
         try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(1.0)
-            sock.connect(str(socket_file))
-            sock.close()
+            client = cls(socket_path=str(socket_file), timeout=1.0)
+            client.health_check()
             return True
         except Exception:
             return False

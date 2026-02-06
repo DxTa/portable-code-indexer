@@ -342,18 +342,30 @@ class UsearchSqliteBackend(StorageBackend):
         self._is_viewed = False
         self._modified_after_view = False
 
-    def open_index(self) -> None:
-        """Open an existing index."""
+    def open_index(self, writable: bool = False) -> None:
+        """Open an existing index.
+
+        Args:
+            writable: Open in read-write mode when True.
+        """
         if not self.vector_path.exists():
             raise FileNotFoundError(f"Vector index not found: {self.vector_path}")
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found: {self.db_path}")
 
-        # Load usearch index (memory-mapped for fast access)
+        # Load usearch index (memory-mapped for fast access when read-only)
         self.vector_index = Index(ndim=self.ndim, metric=MetricKind.Cos, dtype=self.dtype)
         # Only view if the file is not empty
         if self.vector_path.stat().st_size > 0:
-            self.vector_index.view(str(self.vector_path))
+            if writable:
+                self.vector_index.load(str(self.vector_path))
+                self._is_viewed = False
+                self._modified_after_view = False
+            else:
+                self.vector_index.view(str(self.vector_path))
+                # Mark as viewed (read-only memory-mapped, do NOT save on close)
+                self._is_viewed = True
+                self._modified_after_view = False  # Track if vectors added after view
 
             # Dimension mismatch check - verify loaded index matches config
             if len(self.vector_index) > 0 and self.vector_index.ndim != self.ndim:
@@ -364,10 +376,9 @@ class UsearchSqliteBackend(StorageBackend):
                     f"the embedding model (e.g., bge-base-768d vs bge-small-384d). "
                     f"Run 'sia-code index --clean' to rebuild with current model settings."
                 )
-
-        # Mark as viewed (read-only memory-mapped, do NOT save on close)
-        self._is_viewed = True
-        self._modified_after_view = False  # Track if vectors added after view
+        else:
+            self._is_viewed = False
+            self._modified_after_view = False
 
         # Open SQLite database (check_same_thread=False for parallel search)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
