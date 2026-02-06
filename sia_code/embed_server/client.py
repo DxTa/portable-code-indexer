@@ -74,36 +74,46 @@ class EmbedClient:
             TimeoutError: If request times out
             RuntimeError: If daemon returns an error
         """
-        try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            sock.settimeout(self.timeout)
-            sock.connect(str(self.socket_path))
+        for attempt in range(2):
+            sock = None
+            try:
+                sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                sock.settimeout(self.timeout)
+                sock.connect(str(self.socket_path))
 
-            # Send request
-            sock.sendall(Message.encode(request))
+                # Send request
+                sock.sendall(Message.encode(request))
 
-            # Receive response using length-prefixed framing
-            response_data = Message.read_from_socket(sock)
-            sock.close()
+                # Receive response using length-prefixed framing
+                response_data = Message.read_from_socket(sock)
 
-            # Parse response
-            response = Message.decode(response_data)
+                # Parse response
+                response = Message.decode(response_data)
 
-            # Check for error
-            if "error" in response:
-                error_info = response["error"]
-                raise RuntimeError(
-                    f"{error_info.get('type', 'Error')}: {error_info.get('message', 'Unknown error')}"
-                )
+                # Check for error
+                if "error" in response:
+                    error_info = response["error"]
+                    raise RuntimeError(
+                        f"{error_info.get('type', 'Error')}: {error_info.get('message', 'Unknown error')}"
+                    )
 
-            return response
+                return response
+            except socket.timeout:
+                raise TimeoutError(f"Request timed out after {self.timeout}s")
+            except (ConnectionRefusedError, FileNotFoundError) as e:
+                raise ConnectionError(f"Cannot connect to daemon at {self.socket_path}: {e}")
+            except Exception as e:
+                message = str(e)
+                retryable = "Message size" in message or "Expecting value" in message
+                if attempt == 0 and retryable:
+                    logger.warning("Embed daemon framing error, retrying once: %s", message)
+                    continue
+                raise RuntimeError(f"Client error: {e}")
+            finally:
+                if sock is not None:
+                    sock.close()
 
-        except socket.timeout:
-            raise TimeoutError(f"Request timed out after {self.timeout}s")
-        except (ConnectionRefusedError, FileNotFoundError) as e:
-            raise ConnectionError(f"Cannot connect to daemon at {self.socket_path}: {e}")
-        except Exception as e:
-            raise RuntimeError(f"Client error: {e}")
+        raise RuntimeError("Client error: Max retries exceeded")
 
     def encode(
         self,
