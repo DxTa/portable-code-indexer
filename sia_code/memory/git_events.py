@@ -61,6 +61,8 @@ class GitEventExtractor:
                     "breaking_changes": self._extract_breaking_changes(tag_message),
                     "features": self._extract_features(tag_message),
                     "fixes": self._extract_fixes(tag_message),
+                    "commit_hash": tag.commit.hexsha,
+                    "commit_time": tag.commit.committed_datetime,
                 }
 
                 changelogs.append(changelog)
@@ -125,6 +127,8 @@ class GitEventExtractor:
                     "diff_stats": diff_stats,
                     "importance": self._determine_importance(diff_stats),
                     "created_at": commit.committed_datetime,
+                    "commit_hash": commit.hexsha,
+                    "commit_time": commit.committed_datetime,
                     "merge_commit": commit,  # Include for summarization
                 }
 

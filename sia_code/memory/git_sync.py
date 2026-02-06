@@ -121,6 +121,8 @@ class GitSyncService:
                             breaking_changes=changelog_data.get("breaking_changes", []),
                             features=changelog_data.get("features", []),
                             fixes=changelog_data.get("fixes", []),
+                            commit_hash=changelog_data.get("commit_hash"),
+                            commit_time=changelog_data.get("commit_time"),
                         )
                     stats.changelogs_added += 1
 
@@ -176,6 +178,8 @@ class GitSyncService:
                             files_changed=event_data.get("files_changed", []),
                             diff_stats=event_data.get("diff_stats", {}),
                             importance=event_importance,
+                            commit_hash=event_data.get("commit_hash"),
+                            commit_time=event_data.get("commit_time"),
                         )
                     stats.timeline_added += 1
 

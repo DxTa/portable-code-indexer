@@ -79,6 +79,13 @@ sia-code init [OPTIONS]
 | `--path PATH` | Directory to initialize | `.` (current directory) |
 | `--dry-run` | Preview project analysis without creating index | `false` |
 
+**Environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `SIA_CODE_INDEX_DIR` | Override the index directory (absolute or project-relative) |
+| `SIA_CODE_INDEX_SCOPE` | Set to `shared` to reuse one index across git worktrees |
+
 **Examples:**
 
 ```bash
@@ -100,7 +107,7 @@ sia-code init --dry-run
    - Finds documentation files
    - Determines recommended search strategy
 
-2. **Creates `.sia-code/` directory:**
+2. **Creates index directory:**
    - `config.json` - Configuration with auto-detected settings
    - `vectors.usearch` - HNSW vector index (created empty)
    - `index.db` - SQLite database with FTS5 (created empty)

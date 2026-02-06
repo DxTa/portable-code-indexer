@@ -499,6 +499,12 @@ class UsearchSqliteBackend(StorageBackend):
 
         cursor = self.conn.cursor()
 
+        def ensure_column(table: str, column: str, column_type: str) -> None:
+            cursor.execute(f"PRAGMA table_info({table})")
+            existing = {row["name"] for row in cursor.fetchall()}
+            if column not in existing:
+                cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+
         # Code chunks table
         cursor.execute(
             """
@@ -570,6 +576,8 @@ class UsearchSqliteBackend(StorageBackend):
                 files_changed JSON,
                 diff_stats JSON,
                 importance TEXT DEFAULT 'medium',
+                commit_hash TEXT,
+                commit_time TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -587,6 +595,8 @@ class UsearchSqliteBackend(StorageBackend):
                 breaking_changes JSON,
                 features JSON,
                 fixes JSON,
+                commit_hash TEXT,
+                commit_time TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
@@ -604,6 +614,8 @@ class UsearchSqliteBackend(StorageBackend):
                 alternatives JSON,
                 status TEXT DEFAULT 'pending',
                 category TEXT,
+                commit_hash TEXT,
+                commit_time TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 approved_at TIMESTAMP
             )
@@ -650,6 +662,13 @@ class UsearchSqliteBackend(StorageBackend):
             )
         """
         )
+
+        ensure_column("timeline", "commit_hash", "TEXT")
+        ensure_column("timeline", "commit_time", "TIMESTAMP")
+        ensure_column("changelogs", "commit_hash", "TEXT")
+        ensure_column("changelogs", "commit_time", "TIMESTAMP")
+        ensure_column("decisions", "commit_hash", "TEXT")
+        ensure_column("decisions", "commit_time", "TIMESTAMP")
 
         self.conn.commit()
 
@@ -1320,6 +1339,8 @@ class UsearchSqliteBackend(StorageBackend):
         description: str,
         reasoning: str | None = None,
         alternatives: list[dict[str, Any]] | None = None,
+        commit_hash: str | None = None,
+        commit_time: datetime | None = None,
     ) -> int:
         """Add a pending decision (FIFO auto-cleanup when >100).
 
@@ -1339,8 +1360,16 @@ class UsearchSqliteBackend(StorageBackend):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            INSERT INTO decisions (session_id, title, description, reasoning, alternatives)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO decisions (
+                session_id,
+                title,
+                description,
+                reasoning,
+                alternatives,
+                commit_hash,
+                commit_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 session_id,
@@ -1348,6 +1377,8 @@ class UsearchSqliteBackend(StorageBackend):
                 description,
                 reasoning,
                 json.dumps(alternatives or []),
+                commit_hash,
+                commit_time.isoformat() if commit_time else None,
             ),
         )
         decision_id = cursor.lastrowid
@@ -1452,8 +1483,8 @@ class UsearchSqliteBackend(StorageBackend):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT id, session_id, title, description, reasoning, alternatives, 
-                   status, category, created_at, approved_at
+            SELECT id, session_id, title, description, reasoning, alternatives,
+                   status, category, commit_hash, commit_time, created_at, approved_at
             FROM decisions
             WHERE status = 'pending'
             ORDER BY created_at ASC
@@ -1474,6 +1505,10 @@ class UsearchSqliteBackend(StorageBackend):
                     alternatives=json.loads(row["alternatives"]) if row["alternatives"] else [],
                     status=row["status"],
                     category=row["category"],
+                    commit_hash=row["commit_hash"],
+                    commit_time=datetime.fromisoformat(row["commit_time"])
+                    if row["commit_time"]
+                    else None,
                     created_at=datetime.fromisoformat(row["created_at"])
                     if row["created_at"]
                     else None,
@@ -1501,7 +1536,7 @@ class UsearchSqliteBackend(StorageBackend):
         cursor.execute(
             """
             SELECT id, session_id, title, description, reasoning, alternatives,
-                   status, category, created_at, approved_at
+                   status, category, commit_hash, commit_time, created_at, approved_at
             FROM decisions
             WHERE id = ?
         """,
@@ -1521,6 +1556,8 @@ class UsearchSqliteBackend(StorageBackend):
             alternatives=json.loads(row["alternatives"]) if row["alternatives"] else [],
             status=row["status"],
             category=row["category"],
+            commit_hash=row["commit_hash"],
+            commit_time=datetime.fromisoformat(row["commit_time"]) if row["commit_time"] else None,
             created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
             approved_at=datetime.fromisoformat(row["approved_at"]) if row["approved_at"] else None,
         )
@@ -1538,6 +1575,8 @@ class UsearchSqliteBackend(StorageBackend):
         files_changed: list[str] | None = None,
         diff_stats: dict[str, Any] | None = None,
         importance: str = "medium",
+        commit_hash: str | None = None,
+        commit_time: datetime | None = None,
     ) -> int:
         """Add a timeline event.
 
@@ -1559,8 +1598,18 @@ class UsearchSqliteBackend(StorageBackend):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            INSERT INTO timeline (event_type, from_ref, to_ref, summary, files_changed, diff_stats, importance)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO timeline (
+                event_type,
+                from_ref,
+                to_ref,
+                summary,
+                files_changed,
+                diff_stats,
+                importance,
+                commit_hash,
+                commit_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 event_type,
@@ -1570,6 +1619,8 @@ class UsearchSqliteBackend(StorageBackend):
                 json.dumps(files_changed or []),
                 json.dumps(diff_stats or {}),
                 importance,
+                commit_hash,
+                commit_time.isoformat() if commit_time else None,
             ),
         )
         timeline_id = cursor.lastrowid
@@ -1591,6 +1642,8 @@ class UsearchSqliteBackend(StorageBackend):
         breaking_changes: list[str] | None = None,
         features: list[str] | None = None,
         fixes: list[str] | None = None,
+        commit_hash: str | None = None,
+        commit_time: datetime | None = None,
     ) -> int:
         """Add a changelog entry.
 
@@ -1611,8 +1664,18 @@ class UsearchSqliteBackend(StorageBackend):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            INSERT INTO changelogs (tag, version, summary, breaking_changes, features, fixes, date)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO changelogs (
+                tag,
+                version,
+                summary,
+                breaking_changes,
+                features,
+                fixes,
+                date,
+                commit_hash,
+                commit_time
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 tag,
@@ -1622,6 +1685,8 @@ class UsearchSqliteBackend(StorageBackend):
                 json.dumps(features or []),
                 json.dumps(fixes or []),
                 datetime.now().isoformat(),
+                commit_hash,
+                commit_time.isoformat() if commit_time else None,
             ),
         )
         changelog_id = cursor.lastrowid
@@ -1669,7 +1734,8 @@ class UsearchSqliteBackend(StorageBackend):
 
         cursor.execute(
             f"""
-            SELECT id, event_type, from_ref, to_ref, summary, files_changed, diff_stats, importance, created_at
+            SELECT id, event_type, from_ref, to_ref, summary, files_changed, diff_stats, importance,
+                   commit_hash, commit_time, created_at
             FROM timeline
             {where_clause}
             ORDER BY created_at DESC
@@ -1690,6 +1756,10 @@ class UsearchSqliteBackend(StorageBackend):
                     files_changed=json.loads(row["files_changed"]) if row["files_changed"] else [],
                     diff_stats=json.loads(row["diff_stats"]) if row["diff_stats"] else {},
                     importance=row["importance"],
+                    commit_hash=row["commit_hash"],
+                    commit_time=datetime.fromisoformat(row["commit_time"])
+                    if row["commit_time"]
+                    else None,
                     created_at=datetime.fromisoformat(row["created_at"])
                     if row["created_at"]
                     else None,
@@ -1713,7 +1783,8 @@ class UsearchSqliteBackend(StorageBackend):
         cursor = self.conn.cursor()
         cursor.execute(
             """
-            SELECT id, tag, version, date, summary, breaking_changes, features, fixes, created_at
+            SELECT id, tag, version, date, summary, breaking_changes, features, fixes,
+                   commit_hash, commit_time, created_at
             FROM changelogs
             ORDER BY date DESC
             LIMIT ?
@@ -1735,6 +1806,10 @@ class UsearchSqliteBackend(StorageBackend):
                     else [],
                     features=json.loads(row["features"]) if row["features"] else [],
                     fixes=json.loads(row["fixes"]) if row["fixes"] else [],
+                    commit_hash=row["commit_hash"],
+                    commit_time=datetime.fromisoformat(row["commit_time"])
+                    if row["commit_time"]
+                    else None,
                     created_at=datetime.fromisoformat(row["created_at"])
                     if row["created_at"]
                     else None,
@@ -2092,6 +2167,10 @@ class UsearchSqliteBackend(StorageBackend):
                     title=decision_data["title"],
                     description=decision_data["description"],
                     reasoning=decision_data.get("reasoning"),
+                    commit_hash=decision_data.get("commit_hash"),
+                    commit_time=datetime.fromisoformat(decision_data["commit_time"])
+                    if decision_data.get("commit_time")
+                    else None,
                 )
                 # Immediately approve it
                 self.approve_decision(decision_id, decision_data.get("category", "imported"))

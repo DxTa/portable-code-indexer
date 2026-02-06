@@ -153,6 +153,57 @@ class TestGitSyncService:
             # Should skip low importance
             assert stats["timeline_skipped"] >= 1
 
+    def test_commit_context_passed_to_backend(self, sync_service, mock_backend):
+        """Ensure commit metadata is forwarded to backend writes."""
+        commit_time = datetime(2024, 1, 1, 12, 0, 0)
+        tag_event = {
+            "tag": "v1.0.0",
+            "version": "1.0.0",
+            "summary": "Release 1.0",
+            "breaking_changes": [],
+            "features": [],
+            "fixes": [],
+            "commit_hash": "abc123",
+            "commit_time": commit_time,
+        }
+        merge_event = {
+            "event_type": "merge",
+            "from_ref": "feature",
+            "to_ref": "main",
+            "summary": "Merge feature",
+            "files_changed": [],
+            "diff_stats": {},
+            "importance": "medium",
+            "commit_hash": "def456",
+            "commit_time": commit_time,
+        }
+
+        with patch.object(sync_service.extractor, "scan_git_tags", return_value=[tag_event]):
+            with patch.object(sync_service.extractor, "scan_merge_events", return_value=[merge_event]):
+                sync_service.sync()
+
+        mock_backend.add_changelog.assert_called_with(
+            tag="v1.0.0",
+            version="1.0.0",
+            summary="Release 1.0",
+            breaking_changes=[],
+            features=[],
+            fixes=[],
+            commit_hash="abc123",
+            commit_time=commit_time,
+        )
+        mock_backend.add_timeline_event.assert_called_with(
+            event_type="merge",
+            from_ref="feature",
+            to_ref="main",
+            summary="Merge feature",
+            files_changed=[],
+            diff_stats={},
+            importance="medium",
+            commit_hash="def456",
+            commit_time=commit_time,
+        )
+
     def test_meets_importance_threshold(self, sync_service):
         """Test importance threshold logic."""
         assert sync_service._meets_importance_threshold("high", "low") is True

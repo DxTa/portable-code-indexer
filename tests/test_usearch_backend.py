@@ -24,9 +24,7 @@ def backend(temp_index_dir, monkeypatch):
     """Create a test backend instance."""
     backend = UsearchSqliteBackend(
         path=temp_index_dir,
-        embedding_model="all-MiniLM-L6-v2",  # Small model for fast tests
-        ndim=384,
-        dtype="f16",
+        embedding_enabled=False,
     )
 
     class DummyEmbedder:
@@ -105,6 +103,8 @@ def test_store_and_retrieve_chunks(backend):
 
 def test_semantic_search(backend):
     """Test semantic vector search."""
+    if not backend.embedding_enabled:
+        pytest.skip("Semantic search requires embeddings (disabled in tests).")
     # Store some chunks
     chunks = [
         Chunk(

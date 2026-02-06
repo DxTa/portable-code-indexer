@@ -9,6 +9,7 @@ Memory features help teams:
 - **Understand history** - What changed and when?
 - **Share context** - Export/import decisions across teams
 - **Maintain documentation** - Auto-generate from git history
+- **Preserve timing** - Record commit hashes/timestamps for traceability
 
 ## Features
 
@@ -56,6 +57,8 @@ Auto-extracted from git commit history.
 - Release tags
 - Breaking changes
 - Major refactors
+
+Each event stores the source commit hash and timestamp for auditability.
 
 **Example:**
 ```python

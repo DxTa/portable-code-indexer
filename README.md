@@ -112,6 +112,14 @@ sia-code index --clean
 
 View config: `sia-code config show`
 
+**Git worktrees:** share one index across worktrees with `SIA_CODE_INDEX_SCOPE=shared`, or set a custom path with `SIA_CODE_INDEX_DIR`.
+
+```bash
+export SIA_CODE_INDEX_SCOPE=shared
+sia-code init
+sia-code index .
+```
+
 **AI Summarization** (optional, enhances git changelogs):
 
 ```json

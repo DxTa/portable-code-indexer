@@ -1,7 +1,10 @@
 """CLI entry point for Sia Code."""
 
+import os
 import sys
 import logging
+import subprocess
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -128,6 +131,74 @@ def create_backend(index_path: Path, config: Config, valid_chunks=None):
     )
 
 
+def resolve_git_common_dir(base_dir: Path) -> Path | None:
+    """Return git common dir path if available for a repository."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=base_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+    output = result.stdout.strip()
+    if not output:
+        return None
+
+    common_dir = Path(output)
+    if not common_dir.is_absolute():
+        common_dir = (base_dir / common_dir).resolve()
+    return common_dir
+
+
+def get_git_commit_context(base_dir: Path) -> tuple[str | None, datetime | None]:
+    """Return the current git commit hash and commit time for a directory."""
+    try:
+        commit_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=base_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        time_result = subprocess.run(
+            ["git", "show", "-s", "--format=%cI", "HEAD"],
+            cwd=base_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None, None
+
+    commit_hash = commit_result.stdout.strip() or None
+    commit_time_raw = time_result.stdout.strip()
+    commit_time = datetime.fromisoformat(commit_time_raw) if commit_time_raw else None
+    return commit_hash, commit_time
+
+
+def resolve_index_dir(project_dir: Path | None = None) -> Path:
+    """Resolve the index directory, honoring environment overrides."""
+    base_dir = project_dir or Path(".")
+    override = os.environ.get("SIA_CODE_INDEX_DIR")
+    if override:
+        override_path = Path(override)
+        if override_path.is_absolute():
+            return override_path
+        return base_dir / override_path
+
+    scope = os.environ.get("SIA_CODE_INDEX_SCOPE", "worktree")
+    if scope == "shared":
+        common_dir = resolve_git_common_dir(base_dir)
+        if common_dir is not None:
+            return common_dir / "sia-code"
+
+    return base_dir / ".sia-code"
+
+
 def require_initialized() -> tuple[Path, Config]:
     """Ensure Sia Code is initialized, return sia_dir and config.
 
@@ -137,9 +208,11 @@ def require_initialized() -> tuple[Path, Config]:
     Raises:
         SystemExit: If .sia-code directory doesn't exist
     """
-    sia_dir = Path(".sia-code")
+    sia_dir = resolve_index_dir()
     if not sia_dir.exists():
-        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
+        console.print(
+            "[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]"
+        )
         sys.exit(1)
     config = Config.load(sia_dir / "config.json")
     return sia_dir, config
@@ -164,7 +237,7 @@ def init(path: str, dry_run: bool):
     from .indexer.project_analyzer import ProjectAnalyzer
 
     project_dir = Path(path)
-    sia_dir = project_dir / ".sia-code"
+    sia_dir = resolve_index_dir(project_dir)
 
     if sia_dir.exists() and not dry_run:
         console.print(f"[yellow]Sia Code already initialized at {sia_dir}[/yellow]")
@@ -190,7 +263,7 @@ def init(path: str, dry_run: bool):
         console.print("\n[yellow]Dry run complete. No index created.[/yellow]")
         return
 
-    # Create .sia-code directory
+    # Create index directory
     sia_dir.mkdir(parents=True, exist_ok=True)
     (sia_dir / "cache").mkdir(exist_ok=True)
 
@@ -1413,12 +1486,16 @@ def memory_add_decision(title, description, reasoning, alternatives):
 
         session_id = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
+        commit_hash, commit_time = get_git_commit_context(Path("."))
+
         decision_id = backend.add_decision(
             session_id=session_id,
             title=title,
             description=description,
             reasoning=reasoning,
             alternatives=alt_list,
+            commit_hash=commit_hash,
+            commit_time=commit_time,
         )
 
         console.print(f"[green]✓[/green] Created decision #{decision_id}: {title}")
@@ -1821,9 +1898,7 @@ def memory_changelog(range, output_format, output):
 
 
 @memory.command(name="export")
-@click.option(
-    "-o", "--output", type=click.Path(), default=".sia-code/memory.json", help="Output file"
-)
+@click.option("-o", "--output", type=click.Path(), default=None, help="Output file")
 def memory_export(output):
     """Export memory to JSON file.
 
@@ -1834,6 +1909,8 @@ def memory_export(output):
     backend.open_index()
 
     try:
+        if output is None:
+            output = str(sia_dir / "memory.json")
         export_path = backend.export_memory(include_pending=True)
 
         # Copy to specified output location if different
@@ -1855,7 +1932,7 @@ def memory_export(output):
     "--input",
     "input_file",
     type=click.Path(exists=True),
-    default=".sia-code/memory.json",
+    default=None,
     help="Input file",
 )
 def memory_import(input_file):
@@ -1868,6 +1945,8 @@ def memory_import(input_file):
     backend.open_index(writable=True)
 
     try:
+        if input_file is None:
+            input_file = str(sia_dir / "memory.json")
         result = backend.import_memory(input_file)
 
         console.print("[green]✓[/green] Import complete")
