@@ -4,6 +4,7 @@ import pytest
 import subprocess
 import sys
 from pathlib import Path
+import os
 import shutil
 
 
@@ -54,8 +55,15 @@ def validate_input(value: int) -> bool:
 
 def run_cli(args: list, cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Run the CLI with given arguments."""
+    env = os.environ.copy()
+    repo_root = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = f"{repo_root}:{env.get('PYTHONPATH', '')}"
     return subprocess.run(
-        [sys.executable, "-m", "sia_code.cli"] + args, cwd=cwd, capture_output=True, text=True
+        [sys.executable, "-m", "sia_code.cli"] + args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
 

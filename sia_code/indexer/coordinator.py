@@ -14,7 +14,6 @@ from ..config import Config
 from ..core.types import Language
 from ..parser.chunker import CASTChunker, CASTConfig
 from ..storage.base import StorageBackend
-from ..storage.usearch_backend import UsearchSqliteBackend
 from .hash_cache import HashCache
 from .chunk_index import ChunkIndex
 from .metrics import PerformanceMetrics
@@ -578,7 +577,8 @@ class IndexingCoordinator:
         old_index_path = self.backend.path
 
         # Create new backend for new index (with same embedding config)
-        new_backend = UsearchSqliteBackend(
+        backend_cls = type(self.backend)
+        new_backend = backend_cls(
             path=new_index_path,
             embedding_enabled=self.backend.embedding_enabled,
             embedding_model=self.backend.embedding_model,

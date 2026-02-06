@@ -91,7 +91,7 @@ def create_backend(index_path: Path, config: Config, valid_chunks=None):
     """
     from .storage import factory
 
-    # Use factory with auto-detection (always UsearchSqliteBackend)
+    # Use factory with auto-detection (sqlite-vec by default)
     return factory.create_backend(
         path=index_path,
         backend_type="auto",

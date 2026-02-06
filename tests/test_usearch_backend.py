@@ -3,6 +3,7 @@
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from sia_code.core.models import Chunk
@@ -18,7 +19,7 @@ def temp_index_dir():
 
 
 @pytest.fixture
-def backend(temp_index_dir):
+def backend(temp_index_dir, monkeypatch):
     """Create a test backend instance."""
     backend = UsearchSqliteBackend(
         path=temp_index_dir,
@@ -26,6 +27,28 @@ def backend(temp_index_dir):
         ndim=384,
         dtype="f16",
     )
+    class DummyEmbedder:
+        def __init__(self, ndim: int):
+            self.ndim = ndim
+
+        def encode(self, texts, **kwargs):
+            def _vector(text: str) -> np.ndarray:
+                vec = np.zeros(self.ndim, dtype=np.float32)
+                text_lower = text.lower()
+                if "sum" in text_lower or "add" in text_lower:
+                    vec[0] = 1.0
+                elif "product" in text_lower or "multiply" in text_lower:
+                    vec[1] = 1.0
+                else:
+                    vec[2] = 1.0
+                return vec
+
+            if isinstance(texts, list):
+                return np.vstack([_vector(text) for text in texts])
+            return _vector(texts)
+
+    dummy = DummyEmbedder(backend.ndim)
+    monkeypatch.setattr(backend, "_get_embedder", lambda: dummy)
     backend.create_index()
     yield backend
     backend.close()
@@ -211,7 +234,7 @@ def test_export_import_memory(backend, temp_index_dir):
     assert Path(export_path).exists()
 
     # Create a new backend and import
-    backend2 = UsearchSqliteBackend(path=temp_index_dir / "backend2")
+    backend2 = UsearchSqliteBackend(path=temp_index_dir / "backend2", embedding_enabled=False)
     backend2.create_index()
 
     result = backend2.import_memory(export_path)

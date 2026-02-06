@@ -1,4 +1,4 @@
-"""Usearch + SQLite FTS5 storage backend for code and memory."""
+"""SQLite-vec + SQLite FTS5 storage backend for code and memory."""
 
 import json
 import sqlite3
@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from usearch.index import Index, MetricKind
 
 from ..core.models import (
     ChangelogEntry,
@@ -25,7 +24,7 @@ from .base import StorageBackend
 class _MemoryAdapter:
     """Compatibility adapter for legacy mem interface."""
 
-    def __init__(self, backend: "UsearchSqliteBackend") -> None:
+    def __init__(self, backend: "SqliteVecBackend") -> None:
         self._backend = backend
 
     def put(
@@ -62,16 +61,15 @@ class _MemoryAdapter:
         self._backend.store_chunks_batch([chunk])
 
 
-class UsearchSqliteBackend(StorageBackend):
-    """Storage backend using usearch (HNSW) + SQLite (FTS5).
+class SqliteVecBackend(StorageBackend):
+    """Storage backend using sqlite-vec + SQLite (FTS5).
 
     File structure:
-    - .sia-code/vectors.usearch: HNSW index (f16 quantization)
-    - .sia-code/index.db: SQLite database with FTS5
+    - .sia-code/index.db: SQLite database with FTS5 + vectors
 
     Features:
-    - 10x faster than FAISS (usearch HNSW)
-    - f16 quantization (~2 bytes/dim)
+    - sqlite-vec vector index stored inside SQLite
+    - Optional fallback to pure SQLite when sqlite-vec isn't available
     - Unified index (code + memory)
     - Full-text search with FTS5
     - Hybrid search with RRF
@@ -86,36 +84,31 @@ class UsearchSqliteBackend(StorageBackend):
         embedding_enabled: bool = True,
         embedding_model: str = "BAAI/bge-base-en-v1.5",
         ndim: int = 768,
-        dtype: str = "f16",
-        metric: str = "cos",
         **kwargs,
     ):
-        """Initialize usearch + SQLite backend.
+        """Initialize sqlite-vec + SQLite backend.
 
         Args:
             path: Path to .sia-code directory
             embedding_enabled: Whether to enable embeddings
             embedding_model: Embedding model name (e.g., 'bge-small')
             ndim: Embedding dimensionality
-            dtype: Vector data type ('f16', 'f32', 'i8')
-            metric: Distance metric ('cos', 'l2sq', 'ip')
             **kwargs: Additional configuration
         """
         super().__init__(path, **kwargs)
         self.embedding_enabled = embedding_enabled
         self.embedding_model = embedding_model
         self.ndim = ndim
-        self.dtype = dtype
-        self.metric = metric
 
         # Paths
-        self.vector_path = self.path / "vectors.usearch"
         self.db_path = self.path / "index.db"
 
         # Will be initialized in create_index() or open_index()
-        self.vector_index: Index | None = None
         self.conn: sqlite3.Connection | None = None
         self._embedder = None  # Lazy-loaded embedding model
+        self._vector_table_initialized = False
+        self._using_vec_extension = False
+        self._vec_extension_error: Exception | None = None
 
         # Thread-local storage for parallel search
         import threading
@@ -134,6 +127,11 @@ class UsearchSqliteBackend(StorageBackend):
         self.KEY_PREFIX_CHANGELOG = "changelog:"
         self.KEY_PREFIX_DECISION = "decision:"
         self.KEY_PREFIX_MEMORY = "memory:"
+
+        # Vector ID offsets to avoid collisions with chunk IDs
+        self.DECISION_OFFSET = 1_000_000
+        self.TIMELINE_OFFSET = 2_000_000
+        self.CHANGELOG_OFFSET = 3_000_000
 
     def _parse_uri(self, uri: str) -> tuple[str, int, int]:
         """Parse pci:// URIs into path and line numbers."""
@@ -165,6 +163,141 @@ class UsearchSqliteBackend(StorageBackend):
                 start = end = 1
 
         return (path_part, start, end)
+
+    def _load_vec_extension(self, conn: sqlite3.Connection) -> bool:
+        """Try to load sqlite-vec extension."""
+        if not self.embedding_enabled:
+            return False
+        if self._using_vec_extension or self._vec_extension_error is not None:
+            return self._using_vec_extension
+
+        try:
+            import sqlite_vec  # type: ignore
+
+            conn.enable_load_extension(True)
+            if hasattr(sqlite_vec, "load"):
+                sqlite_vec.load(conn)
+            else:
+                conn.load_extension(sqlite_vec.__file__)
+            self._using_vec_extension = True
+            return True
+        except Exception as exc:
+            self._vec_extension_error = exc
+            self._using_vec_extension = False
+            return False
+
+    def _ensure_vector_table(self) -> None:
+        """Ensure vector table exists (sqlite-vec or fallback)."""
+        if self.conn is None:
+            raise RuntimeError("Database connection not initialized")
+        if not self.embedding_enabled or self._vector_table_initialized:
+            return
+
+        cursor = self.conn.cursor()
+        use_vec = self._load_vec_extension(self.conn)
+
+        if use_vec:
+            cursor.execute(
+                f"""
+                CREATE VIRTUAL TABLE IF NOT EXISTS vectors USING vec0(
+                    embedding float[{self.ndim}]
+                )
+            """
+            )
+        else:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                "sqlite-vec extension not available; falling back to brute-force vector search."
+            )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS vectors (
+                    id INTEGER PRIMARY KEY,
+                    embedding BLOB NOT NULL
+                )
+            """
+            )
+
+        self.conn.commit()
+        self._vector_table_initialized = True
+
+    def _serialize_vector(self, vector: np.ndarray) -> bytes:
+        """Serialize a vector for sqlite-vec or fallback storage."""
+        array = np.asarray(vector, dtype=np.float32)
+        if self._using_vec_extension:
+            try:
+                import sqlite_vec  # type: ignore
+
+                if hasattr(sqlite_vec, "serialize"):
+                    return sqlite_vec.serialize(array)
+            except Exception:
+                pass
+        return array.tobytes()
+
+    def _vector_insert(self, vector_id: int, vector: np.ndarray) -> None:
+        """Insert or replace a vector embedding."""
+        if self.conn is None:
+            raise RuntimeError("Database connection not initialized")
+        if not self.embedding_enabled:
+            return
+        self._ensure_vector_table()
+        payload = self._serialize_vector(vector)
+        cursor = self.conn.cursor()
+        if self._using_vec_extension:
+            cursor.execute(
+                "INSERT OR REPLACE INTO vectors(rowid, embedding) VALUES (?, ?)",
+                (vector_id, payload),
+            )
+        else:
+            cursor.execute(
+                "INSERT OR REPLACE INTO vectors(id, embedding) VALUES (?, ?)",
+                (vector_id, payload),
+            )
+
+    def _vector_search(self, query_vector: np.ndarray, k: int) -> list[tuple[str, float]]:
+        """Search vectors, returning list of (id, score)."""
+        if self.conn is None:
+            raise RuntimeError("Database connection not initialized")
+        if not self.embedding_enabled:
+            return []
+        self._ensure_vector_table()
+
+        cursor = self.conn.cursor()
+        if self._using_vec_extension:
+            payload = self._serialize_vector(query_vector)
+            cursor.execute(
+                """
+                SELECT rowid, distance
+                FROM vectors
+                WHERE embedding MATCH ?
+                ORDER BY distance
+                LIMIT ?
+            """,
+                (payload, k),
+            )
+            rows = cursor.fetchall()
+            return [(str(row[0]), 1.0 - float(row[1])) for row in rows]
+
+        cursor.execute("SELECT id, embedding FROM vectors")
+        rows = cursor.fetchall()
+        if not rows:
+            return []
+
+        query = np.asarray(query_vector, dtype=np.float32)
+        query_norm = np.linalg.norm(query) or 1.0
+        scored = []
+        for row in rows:
+            vec = np.frombuffer(row[1], dtype=np.float32)
+            if vec.size != query.size:
+                continue
+            denom = (np.linalg.norm(vec) or 1.0) * query_norm
+            score = float(np.dot(vec, query) / denom)
+            scored.append((str(row[0]), score))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return scored[:k]
 
     def _get_embedder(self):
         """Lazy-load the embedding model with GPU if available.
@@ -399,21 +532,14 @@ class UsearchSqliteBackend(StorageBackend):
         """Create a new index (vectors + SQLite)."""
         self.path.mkdir(parents=True, exist_ok=True)
 
-        # Create usearch vector index
-        self.vector_index = Index(
-            ndim=self.ndim,
-            metric=MetricKind.Cos if self.metric == "cos" else MetricKind.L2sq,
-            dtype=self.dtype,
-        )
-
         # Create SQLite database (check_same_thread=False for parallel search)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row  # Enable column access by name
+        self._vector_table_initialized = False
         self._create_tables()
 
-        # Mark as not viewed (new index, safe to save on close)
-        self._is_viewed = False
-        self._modified_after_view = False
+        # Ensure vector table exists when embeddings are enabled
+        self._ensure_vector_table()
 
     def open_index(self, writable: bool = False) -> None:
         """Open an existing index.
@@ -421,57 +547,18 @@ class UsearchSqliteBackend(StorageBackend):
         Args:
             writable: Open in read-write mode when True.
         """
-        if not self.vector_path.exists():
-            raise FileNotFoundError(f"Vector index not found: {self.vector_path}")
         if not self.db_path.exists():
             raise FileNotFoundError(f"Database not found: {self.db_path}")
-
-        # Load usearch index (memory-mapped for fast access when read-only)
-        self.vector_index = Index(ndim=self.ndim, metric=MetricKind.Cos, dtype=self.dtype)
-        # Only view if the file is not empty
-        if self.vector_path.stat().st_size > 0:
-            if writable:
-                self.vector_index.load(str(self.vector_path))
-                self._is_viewed = False
-                self._modified_after_view = False
-            else:
-                self.vector_index.view(str(self.vector_path))
-                # Mark as viewed (read-only memory-mapped, do NOT save on close)
-                self._is_viewed = True
-                self._modified_after_view = False  # Track if vectors added after view
-
-            # Dimension mismatch check - verify loaded index matches config
-            if len(self.vector_index) > 0 and self.vector_index.ndim != self.ndim:
-                existing_ndim = self.vector_index.ndim
-                raise ValueError(
-                    f"Index dimension mismatch: existing index has {existing_ndim}d vectors "
-                    f"but config expects {self.ndim}d. This typically happens after changing "
-                    f"the embedding model (e.g., bge-base-768d vs bge-small-384d). "
-                    f"Run 'sia-code index --clean' to rebuild with current model settings."
-                )
-        else:
-            self._is_viewed = False
-            self._modified_after_view = False
 
         # Open SQLite database (check_same_thread=False for parallel search)
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self._vector_table_initialized = False
+        if writable:
+            self._ensure_vector_table()
 
     def close(self) -> None:
         """Close the index and save changes."""
-        if self.vector_index is not None:
-            # Only save if we created/modified the index, not if we just viewed it
-            # (save() on a viewed index without modifications creates a 0-byte file)
-            # BUT save if we added new vectors after viewing
-            is_viewed = getattr(self, "_is_viewed", False)
-            modified_after_view = getattr(self, "_modified_after_view", False)
-
-            if not is_viewed or modified_after_view:
-                self.vector_index.save(str(self.vector_path))
-
-            self._is_viewed = False  # Reset flags
-            self._modified_after_view = False
-
         if self.conn is not None:
             self.conn.commit()
             self.conn.close()
@@ -669,7 +756,7 @@ class UsearchSqliteBackend(StorageBackend):
         Returns:
             List of chunk IDs (as strings)
         """
-        if self.conn is None or self.vector_index is None:
+        if self.conn is None:
             raise RuntimeError("Index not initialized")
 
         cursor = self.conn.cursor()
@@ -708,11 +795,7 @@ class UsearchSqliteBackend(StorageBackend):
 
                 if vectors is not None:
                     for j, chunk_id in enumerate(chunk_ids):
-                        self.vector_index.add(int(chunk_id), vectors[j])
-
-                        # Track that we modified the index after viewing
-                        if getattr(self, "_is_viewed", False):
-                            self._modified_after_view = True
+                        self._vector_insert(int(chunk_id), vectors[j])
             except Exception:
                 # Rollback SQLite inserts to avoid chunks without embeddings
                 self.conn.rollback()
@@ -905,7 +988,7 @@ class UsearchSqliteBackend(StorageBackend):
         Returns:
             List of search results sorted by relevance
         """
-        if self.vector_index is None:
+        if self.conn is None:
             raise RuntimeError("Index not initialized")
 
         if not self.embedding_enabled:
@@ -918,13 +1001,7 @@ class UsearchSqliteBackend(StorageBackend):
         if query_vector is None:
             return []
 
-        # Search usearch index
-        matches = self.vector_index.search(query_vector, k)
-
-        ids_with_scores = []
-        for key, distance in zip(matches.keys, matches.distances):
-            score = 1.0 - float(distance)
-            ids_with_scores.append((str(key), score))
+        ids_with_scores = self._vector_search(query_vector, k)
 
         if not ids_with_scores:
             return []
@@ -1333,8 +1410,8 @@ class UsearchSqliteBackend(StorageBackend):
 
         vector = self._embed(decision_text)
         # Store with decision key prefix
-        if self.vector_index:
-            self.vector_index.add(decision_id + 1000000, vector)  # Offset to avoid ID collision
+        if vector is not None:
+            self._vector_insert(self.DECISION_OFFSET + decision_id, vector)
 
         self.conn.commit()
         return decision_id
@@ -1551,8 +1628,8 @@ class UsearchSqliteBackend(StorageBackend):
         # Embed timeline event for semantic search
         event_text = f"{event_type}: {from_ref} → {to_ref}\n\n{summary}"
         vector = self._embed(event_text)
-        if self.vector_index:
-            self.vector_index.add(timeline_id + 2000000, vector)  # Offset to avoid collision
+        if vector is not None:
+            self._vector_insert(self.TIMELINE_OFFSET + timeline_id, vector)
 
         self.conn.commit()
         return timeline_id
@@ -1603,8 +1680,8 @@ class UsearchSqliteBackend(StorageBackend):
         # Embed changelog for semantic search
         changelog_text = f"{tag} ({version})\n\n{summary}"
         vector = self._embed(changelog_text)
-        if self.vector_index:
-            self.vector_index.add(changelog_id + 3000000, vector)  # Offset
+        if vector is not None:
+            self._vector_insert(self.CHANGELOG_OFFSET + changelog_id, vector)
 
         self.conn.commit()
         return changelog_id
