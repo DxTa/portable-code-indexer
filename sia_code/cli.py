@@ -1068,7 +1068,7 @@ def compact(path: str, threshold: float, force: bool):
 
     # Load backend
     backend = create_backend(sia_dir, config)
-    backend.open_index()
+    backend.open_index(writable=True)
 
     coordinator = IndexingCoordinator(config, backend)
     directory = Path(path).resolve()
@@ -1310,7 +1310,7 @@ def memory_sync_git(since, limit, dry_run, tags_only, merges_only, min_importanc
         sys.exit(1)
 
     backend = create_backend(sia_dir, config)
-    backend.open_index()
+    backend.open_index(writable=True)
 
     try:
         console.print(f"[cyan]Syncing git history from {since}...[/cyan]\n")
@@ -1365,7 +1365,7 @@ def memory_add_decision(title, description, reasoning, alternatives):
     """
     sia_dir, config = require_initialized()
     backend = create_backend(sia_dir, config)
-    backend.open_index()
+    backend.open_index(writable=True)
 
     try:
         # Parse alternatives
@@ -1422,7 +1422,7 @@ def memory_list(item_type, status, limit, output_format):
     """List memory items (decisions, timeline, changelogs)."""
     sia_dir, config = require_initialized()
     backend = create_backend(sia_dir, config)
-    backend.open_index()
+    backend.open_index(writable=True)
 
     try:
         results = {"decisions": [], "timeline": [], "changelogs": []}
@@ -1522,7 +1522,7 @@ def memory_approve(decision_id, category):
     """
     sia_dir, config = require_initialized()
     backend = create_backend(sia_dir, config)
-    backend.open_index()
+    backend.open_index(writable=True)
 
     try:
         # Get decision to show what's being approved
@@ -1555,7 +1555,7 @@ def memory_reject(decision_id):
     """
     sia_dir, config = require_initialized()
     backend = create_backend(sia_dir, config)
-    backend.open_index()
+    backend.open_index(writable=True)
 
     try:
         decision = backend.get_decision(decision_id)
@@ -1831,7 +1831,7 @@ def memory_import(input_file):
     """
     sia_dir, config = require_initialized()
     backend = create_backend(sia_dir, config)
-    backend.open_index()
+    backend.open_index(writable=True)
 
     try:
         result = backend.import_memory(input_file)

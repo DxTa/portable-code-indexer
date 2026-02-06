@@ -45,8 +45,12 @@ class StorageBackend(ABC):
         ...
 
     @abstractmethod
-    def open_index(self) -> None:
-        """Open an existing index."""
+    def open_index(self, writable: bool = False) -> None:
+        """Open an existing index.
+
+        Args:
+            writable: Open in read-write mode when True.
+        """
         ...
 
     @abstractmethod

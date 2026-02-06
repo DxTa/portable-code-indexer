@@ -49,7 +49,14 @@ class Message:
 
         msg_len = struct.unpack(">I", header)[0]
         if msg_len > max_bytes:
-            raise ValueError(f"Message size {msg_len} exceeds {max_bytes} limit")
+            header_hex = header.hex()
+            header_ascii = header.decode("utf-8", errors="replace")
+            raise ValueError(
+                "Message size "
+                f"{msg_len} exceeds {max_bytes} limit "
+                f"(header=0x{header_hex} ascii='{header_ascii}'; "
+                "likely protocol mismatch or stale socket)"
+            )
 
         # Read exactly msg_len bytes
         data = b""
