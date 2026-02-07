@@ -1,5 +1,7 @@
 """Tests for sqlite-vec backend (FTS5 + sqlite-vec)."""
 
+from datetime import datetime
+
 import numpy as np
 import pytest
 import sqlite3
@@ -148,3 +150,135 @@ def test_store_chunks_batch_keeps_stable_id_on_upsert(tmp_path, monkeypatch):
 
     assert first_id == second_id
     backend.close()
+
+
+def test_add_changelog_stores_commit_context(backend):
+    commit_time = datetime(2024, 1, 1, 12, 0, 0)
+    backend.add_changelog(
+        tag="v1.0.0",
+        version="1.0.0",
+        summary="Release 1.0",
+        breaking_changes=[],
+        features=[],
+        fixes=[],
+        commit_hash="abc123",
+        commit_time=commit_time,
+    )
+
+    changelogs = backend.get_changelogs(limit=10)
+    assert changelogs
+    assert changelogs[0].commit_hash == "abc123"
+    assert changelogs[0].commit_time == commit_time
+
+
+def test_add_timeline_event_stores_commit_context(backend):
+    commit_time = datetime(2024, 1, 2, 12, 0, 0)
+    backend.add_timeline_event(
+        event_type="merge",
+        from_ref="feature",
+        to_ref="main",
+        summary="Merge feature",
+        files_changed=[],
+        diff_stats={},
+        importance="medium",
+        commit_hash="def456",
+        commit_time=commit_time,
+    )
+
+    events = backend.get_timeline_events(limit=10)
+    assert events
+    assert events[0].commit_hash == "def456"
+    assert events[0].commit_time == commit_time
+
+
+def test_add_decision_stores_commit_context(backend):
+    commit_time = datetime(2024, 1, 3, 12, 0, 0)
+    decision_id = backend.add_decision(
+        session_id="sess-1",
+        title="Decision",
+        description="Do the thing",
+        reasoning="Because",
+        alternatives=[{"title": "Alt"}],
+        commit_hash="aaa111",
+        commit_time=commit_time,
+    )
+
+    decision = backend.get_decision(decision_id)
+    assert decision is not None
+    assert decision.commit_hash == "aaa111"
+    assert decision.commit_time == commit_time
+
+
+def test_export_import_memory_preserves_commit_context(tmp_path):
+    backend1 = SqliteVecBackend(tmp_path / "backend1.sia-code", embedding_enabled=False, ndim=3)
+    backend1.create_index()
+
+    commit_time = datetime(2024, 1, 1, 12, 0, 0)
+
+    decision_id = backend1.add_decision(
+        session_id="export-test",
+        title="Decision export",
+        description="Export/import should preserve commit context",
+        commit_hash="d111",
+        commit_time=commit_time,
+    )
+    backend1.approve_decision(decision_id, category="test")
+
+    backend1.add_timeline_event(
+        event_type="merge",
+        from_ref="feature",
+        to_ref="main",
+        summary="Merged feature",
+        commit_hash="t111",
+        commit_time=commit_time,
+    )
+
+    backend1.add_changelog(
+        tag="v1.0.0",
+        version="1.0.0",
+        summary="Release",
+        commit_hash="c111",
+        commit_time=commit_time,
+    )
+
+    export_path = backend1.export_memory(
+        output_path=tmp_path / "memory.json", include_pending=False
+    )
+    backend1.close()
+
+    backend2 = SqliteVecBackend(tmp_path / "backend2.sia-code", embedding_enabled=False, ndim=3)
+    backend2.create_index()
+
+    result = backend2.import_memory(export_path)
+    assert result.added > 0
+
+    imported_event = next(
+        (
+            e
+            for e in backend2.get_timeline_events(limit=50)
+            if e.from_ref == "feature" and e.to_ref == "main"
+        ),
+        None,
+    )
+    assert imported_event is not None
+    assert imported_event.commit_hash == "t111"
+    assert imported_event.commit_time == commit_time
+
+    imported_changelog = next(
+        (c for c in backend2.get_changelogs(limit=50) if c.tag == "v1.0.0"),
+        None,
+    )
+    assert imported_changelog is not None
+    assert imported_changelog.commit_hash == "c111"
+    assert imported_changelog.commit_time == commit_time
+
+    cursor = backend2.conn.cursor()
+    cursor.execute("SELECT id FROM decisions WHERE title = ?", ("Decision export",))
+    row = cursor.fetchone()
+    assert row is not None
+    imported_decision = backend2.get_decision(row["id"])
+    assert imported_decision is not None
+    assert imported_decision.commit_hash == "d111"
+    assert imported_decision.commit_time == commit_time
+
+    backend2.close()

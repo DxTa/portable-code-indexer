@@ -1,6 +1,8 @@
 """Unit tests for GitSyncService."""
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
+
 import subprocess
 
 import pytest
@@ -179,7 +181,9 @@ class TestGitSyncService:
         }
 
         with patch.object(sync_service.extractor, "scan_git_tags", return_value=[tag_event]):
-            with patch.object(sync_service.extractor, "scan_merge_events", return_value=[merge_event]):
+            with patch.object(
+                sync_service.extractor, "scan_merge_events", return_value=[merge_event]
+            ):
                 sync_service.sync()
 
         mock_backend.add_changelog.assert_called_with(

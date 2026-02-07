@@ -456,6 +456,10 @@ class UsearchSqliteBackend(StorageBackend):
         # Open SQLite database (check_same_thread=False for parallel search)
         self.conn = connect_sqlite(self.db_path, check_same_thread=False)
 
+        # Ensure schema migrations are applied before any writes
+        if writable:
+            self._create_tables()
+
     def close(self) -> None:
         """Close the index and save changes."""
         if self.vector_index is not None:
@@ -2035,7 +2039,7 @@ class UsearchSqliteBackend(StorageBackend):
             cursor = self.conn.cursor()
             cursor.execute(
                 """
-                SELECT id, session_id, title, description, reasoning, category, approved_at
+                SELECT id, session_id, title, description, reasoning, category, commit_hash, commit_time, approved_at
                 FROM decisions
                 WHERE status = 'approved'
                 ORDER BY approved_at DESC
@@ -2050,6 +2054,8 @@ class UsearchSqliteBackend(StorageBackend):
                         "description": row["description"],
                         "reasoning": row["reasoning"],
                         "category": row["category"],
+                        "commit_hash": row["commit_hash"],
+                        "commit_time": row["commit_time"],
                         "approved_at": row["approved_at"],
                     }
                 )
@@ -2129,6 +2135,10 @@ class UsearchSqliteBackend(StorageBackend):
                     files_changed=event_data.get("files_changed", []),
                     diff_stats=event_data.get("diff_stats", {}),
                     importance=event_data.get("importance", "medium"),
+                    commit_hash=event_data.get("commit_hash"),
+                    commit_time=datetime.fromisoformat(event_data["commit_time"])
+                    if event_data.get("commit_time")
+                    else None,
                 )
                 result.added += 1
 
@@ -2148,6 +2158,10 @@ class UsearchSqliteBackend(StorageBackend):
                     breaking_changes=changelog_data.get("breaking_changes", []),
                     features=changelog_data.get("features", []),
                     fixes=changelog_data.get("fixes", []),
+                    commit_hash=changelog_data.get("commit_hash"),
+                    commit_time=datetime.fromisoformat(changelog_data["commit_time"])
+                    if changelog_data.get("commit_time")
+                    else None,
                 )
                 result.added += 1
 

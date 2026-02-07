@@ -1,6 +1,7 @@
 """Tests for UsearchSqliteBackend."""
 
 import tempfile
+from datetime import datetime
 from pathlib import Path
 import sqlite3
 
@@ -217,11 +218,15 @@ def test_export_import_memory(backend, temp_index_dir):
     )
     backend.approve_decision(decision_id, category="test")
 
+    commit_time = datetime(2024, 1, 1, 12, 0, 0)
+
     backend.add_timeline_event(
         event_type="tag",
         from_ref="v1.0.0",
         to_ref="v2.0.0",
         summary="Major release",
+        commit_hash="abc123",
+        commit_time=commit_time,
     )
 
     backend.add_changelog(
@@ -229,6 +234,8 @@ def test_export_import_memory(backend, temp_index_dir):
         version="2.0.0",
         summary="Major version with breaking changes",
         breaking_changes=["Changed API signature"],
+        commit_hash="def456",
+        commit_time=commit_time,
     )
 
     # Export memory
@@ -248,10 +255,89 @@ def test_export_import_memory(backend, temp_index_dir):
     events = backend2.get_timeline_events()
     assert len(events) > 0
 
+    imported_event = next(
+        (e for e in events if e.from_ref == "v1.0.0" and e.to_ref == "v2.0.0"), None
+    )
+    assert imported_event is not None
+    assert imported_event.commit_hash == "abc123"
+    assert imported_event.commit_time == commit_time
+
     changelogs = backend2.get_changelogs()
     assert len(changelogs) > 0
 
+    imported_changelog = next((c for c in changelogs if c.tag == "v2.0.0"), None)
+    assert imported_changelog is not None
+    assert imported_changelog.commit_hash == "def456"
+    assert imported_changelog.commit_time == commit_time
+
     backend2.close()
+
+
+def test_open_index_applies_migrations_for_writes(temp_index_dir):
+    """Opening a legacy index in writable mode should apply schema migrations."""
+    import sqlite3
+
+    legacy_dir = temp_index_dir / "legacy"
+    legacy_dir.mkdir(parents=True)
+
+    # Minimal legacy schema without commit_hash/commit_time columns
+    db_path = legacy_dir / "index.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS timeline (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT,
+            from_ref TEXT,
+            to_ref TEXT,
+            summary TEXT,
+            files_changed JSON,
+            diff_stats JSON,
+            importance TEXT DEFAULT 'medium',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS changelogs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tag TEXT UNIQUE,
+            version TEXT,
+            date TIMESTAMP,
+            summary TEXT,
+            breaking_changes JSON,
+            features JSON,
+            fixes JSON,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    # usearch backend requires vector file to exist
+    (legacy_dir / "vectors.usearch").write_bytes(b"")
+
+    backend = UsearchSqliteBackend(path=legacy_dir, embedding_enabled=False)
+    backend.open_index(writable=True)
+
+    commit_time = datetime(2024, 1, 1, 12, 0, 0)
+    backend.add_changelog(
+        tag="v0.0.1",
+        version="0.0.1",
+        summary="legacy import",
+        commit_hash="abc123",
+        commit_time=commit_time,
+    )
+
+    changelogs = backend.get_changelogs(limit=10)
+    imported = next((c for c in changelogs if c.tag == "v0.0.1"), None)
+    assert imported is not None
+    assert imported.commit_hash == "abc123"
+    assert imported.commit_time == commit_time
+
+    backend.close()
 
 
 def test_generate_context(backend):
