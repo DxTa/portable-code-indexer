@@ -142,7 +142,7 @@ class TestTypescriptDependencyDiscovery:
         results = list(discovery.discover_typescript_stubs(project_root, dry_run=False))
 
         # Should find axios and lodash (both have types field)
-        names = [dep.name for dep in results]
+        [dep.name for dep in results]
 
         # At minimum should find the @types packages
         assert len(results) >= 2, "Should discover multiple type packages"

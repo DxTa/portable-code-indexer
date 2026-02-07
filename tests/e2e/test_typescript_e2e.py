@@ -1,7 +1,6 @@
 """E2E tests for TypeScript repository (denoland/deno)."""
 
 import json
-import pytest
 
 from .base_e2e_test import TypeScriptE2ETest
 

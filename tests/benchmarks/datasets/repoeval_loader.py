@@ -102,7 +102,7 @@ if __name__ == "__main__":
         queries = load_repoeval(dataset_path, repo_filter="huggingface_diffusers", max_queries=10)
 
         print(f"Loaded {len(queries)} queries")
-        print(f"\nExample query:")
+        print("\nExample query:")
         q = queries[0]
         print(f"  Task ID: {q.task_id}")
         print(f"  Repo: {q.repo_name}")

@@ -81,16 +81,16 @@ class TestMetrics:
         retrieved = ["doc4", "doc1", "doc5"]
         relevant = {"doc1", "doc2"}
 
-        assert hit_at_k(retrieved, relevant, k=2) == True
-        assert hit_at_k(retrieved, relevant, k=5) == True
+        assert hit_at_k(retrieved, relevant, k=2)
+        assert hit_at_k(retrieved, relevant, k=5)
 
     def test_hit_at_k_false(self):
         """Test Hit@k when no relevant in top-k."""
         retrieved = ["doc4", "doc5", "doc1"]
         relevant = {"doc1", "doc2"}
 
-        assert hit_at_k(retrieved, relevant, k=2) == False
-        assert hit_at_k(retrieved, relevant, k=1) == False
+        assert not hit_at_k(retrieved, relevant, k=2)
+        assert not hit_at_k(retrieved, relevant, k=1)
 
     def test_ndcg_perfect_ranking(self):
         """Test nDCG with perfect ranking."""

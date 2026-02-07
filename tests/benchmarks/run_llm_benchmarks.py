@@ -347,7 +347,7 @@ def main():
         print(f"Tool: {result.tool_name}")
         print(f"Judge: {result.judge_model}")
         print(f"\nOverall Score: {result.score}/100")
-        print(f"\nBreakdown:")
+        print("\nBreakdown:")
         print(f"  File Coverage: {result.file_coverage}/100")
         print(f"  Concept Coverage: {result.concept_coverage}/100")
         print(f"  Accuracy: {result.accuracy}/100")
@@ -356,17 +356,17 @@ def main():
         print(f"\nReasoning:\n{result.reasoning}")
 
         if result.missing_elements:
-            print(f"\nMissing Elements:")
+            print("\nMissing Elements:")
             for elem in result.missing_elements:
                 print(f"  - {elem}")
 
         if result.strengths:
-            print(f"\nStrengths:")
+            print("\nStrengths:")
             for strength in result.strengths:
                 print(f"  + {strength}")
 
         if result.weaknesses:
-            print(f"\nWeaknesses:")
+            print("\nWeaknesses:")
             for weakness in result.weaknesses:
                 print(f"  - {weakness}")
 

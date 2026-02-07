@@ -91,10 +91,36 @@ def create_backend(index_path: Path, config: Config, valid_chunks=None):
     """
     from .storage import factory
 
-    # Use factory with auto-detection (always UsearchSqliteBackend)
+    configured_backend = config.storage.backend
+    detected_backend = factory.get_backend_type(index_path)
+
+    if (
+        configured_backend != "auto"
+        and detected_backend != "none"
+        and configured_backend != detected_backend
+    ):
+        console.print(
+            "[red]Backend mismatch:[/red] "
+            f"config requests '{configured_backend}' but index contains '{detected_backend}'."
+        )
+        console.print(
+            "[dim]Option 1: keep existing index with "
+            f"'sia-code config set storage.backend {detected_backend}'[/dim]"
+        )
+        console.print("[dim]Option 2: migrate by running 'sia-code index --clean .'[/dim]")
+        sys.exit(1)
+
+    if configured_backend == "auto" and detected_backend == "usearch":
+        console.print("[yellow]Detected legacy usearch index.[/yellow] Using it for compatibility.")
+        console.print(
+            "[dim]Set 'storage.backend=usearch' to pin legacy mode, "
+            "or run 'sia-code index --clean .' to migrate to sqlite-vec.[/dim]"
+        )
+
+    # Use configured backend; auto-detection defaults to sqlite-vec for new indexes.
     return factory.create_backend(
         path=index_path,
-        backend_type="auto",
+        backend_type=configured_backend,
         embedding_enabled=config.embedding.enabled,
         embedding_model=config.embedding.model,
         ndim=config.embedding.dimensions,
@@ -233,7 +259,6 @@ def index(
     sia_dir, config = require_initialized()
 
     # Handle --clean flag
-    backend = create_backend(sia_dir, config)
     if clean:
         console.print("[yellow]Cleaning existing index and cache...[/yellow]")
 
@@ -249,14 +274,23 @@ def index(
             cache_path.unlink()
             console.print(f"  [dim]✓ Deleted: {cache_path}[/dim]")
 
+        # Remove legacy usearch vector file to allow backend migration on clean rebuild
+        usearch_path = sia_dir / "vectors.usearch"
+        if usearch_path.exists():
+            usearch_path.unlink()
+            console.print(f"  [dim]✓ Deleted: {usearch_path}[/dim]")
+
         console.print("[green]Clean complete. Performing full reindex...[/green]\n")
 
         # Force full reindex by ensuring update=False
         update = False
 
+        # Re-detect backend after cleanup (auto now defaults to sqlite-vec)
+        backend = create_backend(sia_dir, config)
         # Recreate index
         backend.create_index()
     else:
+        backend = create_backend(sia_dir, config)
         # Open existing index
         backend.open_index()
 

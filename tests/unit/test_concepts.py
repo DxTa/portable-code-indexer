@@ -1,7 +1,7 @@
 """Unit tests for concept extraction from AST."""
 
 import pytest
-from sia_code.parser.concepts import ConceptExtractor, UniversalConcept
+from sia_code.parser.concepts import ConceptExtractor
 from sia_code.parser.engine import TreeSitterEngine
 from sia_code.core.types import Language, ChunkType, ConceptType
 

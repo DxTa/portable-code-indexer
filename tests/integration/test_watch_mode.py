@@ -2,7 +2,6 @@
 
 import pytest
 import time
-from pathlib import Path
 from sia_code.indexer.coordinator import IndexingCoordinator
 from sia_code.indexer.hash_cache import HashCache
 from sia_code.indexer.chunk_index import ChunkIndex
@@ -129,7 +128,7 @@ class TestWatchModeIndexing:
         setup = test_setup
 
         # Initial index
-        stats1 = setup["coordinator"].index_directory_incremental_v2(
+        setup["coordinator"].index_directory_incremental_v2(
             setup["workspace"],
             setup["cache"],
             setup["chunk_index"],
@@ -215,7 +214,7 @@ def function_2():
         setup = test_setup
 
         # Initial index
-        stats1 = setup["coordinator"].index_directory_incremental_v2(
+        setup["coordinator"].index_directory_incremental_v2(
             setup["workspace"],
             setup["cache"],
             setup["chunk_index"],
@@ -252,8 +251,10 @@ def modified_function():
         new_valid_chunks = list(setup["chunk_index"].get_valid_chunks())
         assert len(new_valid_chunks) >= 1
 
-        # The new valid chunks should be different from the initial ones
-        assert new_valid_chunks != initial_valid_chunks
+        # Upsert may preserve chunk IDs; ensure either IDs changed or previous IDs were stale-marked.
+        assert new_valid_chunks != initial_valid_chunks or any(
+            chunk_id in stale_chunks for chunk_id in initial_valid_chunks
+        )
 
 
 if __name__ == "__main__":

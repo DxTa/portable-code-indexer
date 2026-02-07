@@ -4,10 +4,8 @@ Measures latency, throughput, and resource efficiency.
 """
 
 import time
-import json
 import pytest
 import subprocess
-from pathlib import Path
 
 from .base_e2e_test import BaseE2ETest
 

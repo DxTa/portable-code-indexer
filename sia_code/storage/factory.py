@@ -15,7 +15,7 @@ def create_backend(
 
     Args:
         path: Path to .sia-code directory
-        backend_type: 'auto' or 'usearch' (both use usearch)
+        backend_type: 'auto', 'sqlite-vec', or 'usearch'
         **kwargs: Backend-specific configuration
 
     Returns:
@@ -26,17 +26,25 @@ def create_backend(
     """
     # Auto-detect backend from existing files
     if backend_type == "auto":
-        # Always use usearch backend
-        backend_type = "usearch"
+        if (path / "vectors.usearch").exists():
+            backend_type = "usearch"
+        else:
+            backend_type = "sqlite-vec"
 
     # Create backend
+    if backend_type == "sqlite-vec":
+        from .sqlite_vec_backend import SqliteVecBackend
+
+        return SqliteVecBackend(path, **kwargs)
     if backend_type == "usearch":
         from .usearch_backend import UsearchSqliteBackend
 
         return UsearchSqliteBackend(path, **kwargs)
 
     else:
-        raise ValueError(f"Unknown backend type: {backend_type}. Only 'usearch' is supported.")
+        raise ValueError(
+            f"Unknown backend type: {backend_type}. Only 'sqlite-vec' and 'usearch' are supported."
+        )
 
 
 def get_backend_type(path: Path) -> str:
@@ -46,11 +54,12 @@ def get_backend_type(path: Path) -> str:
         path: Path to .sia-code directory
 
     Returns:
-        'usearch' or 'none'
+        'sqlite-vec', 'usearch', or 'none'
     """
     vector_path = path / "vectors.usearch"
 
     if vector_path.exists():
         return "usearch"
-    else:
-        return "none"
+    if (path / "index.db").exists():
+        return "sqlite-vec"
+    return "none"

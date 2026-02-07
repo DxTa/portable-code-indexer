@@ -1,7 +1,6 @@
 """E2E tests for Python repository (psf/requests)."""
 
 import json
-import pytest
 
 from .base_e2e_test import PythonE2ETest
 
@@ -85,7 +84,7 @@ class TestPythonE2E(PythonE2ETest):
     def test_search_finds_language_keyword(self, indexed_repo):
         """Test searching for Python keyword 'class' finds results."""
         # Use 'class' instead of 'def ' as it's more reliably indexed
-        results = self.search_json("class", indexed_repo, regex=True, limit=10)
+        self.search_json("class", indexed_repo, regex=True, limit=10)
         # Search may return empty if index isn't fully populated - check command succeeds
         result = self.run_cli(
             ["search", "class", "--regex", "-k", "5", "--no-filter"], indexed_repo

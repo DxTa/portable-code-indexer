@@ -232,7 +232,6 @@ class GrepRetriever:
                     output = result.stdout
 
                     # Group by file
-                    current_file = None
                     file_chunks = {}
 
                     for line in output.split("\n"):
@@ -266,7 +265,7 @@ class GrepRetriever:
                         )
                         chunks.append(formatted)
 
-            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            except (subprocess.TimeoutExpired, FileNotFoundError):
                 # Skip this keyword if grep fails
                 continue
 

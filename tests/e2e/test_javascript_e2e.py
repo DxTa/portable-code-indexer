@@ -1,7 +1,6 @@
 """E2E tests for JavaScript repository (expressjs/express)."""
 
 import json
-import pytest
 
 from .base_e2e_test import JavaScriptE2ETest
 

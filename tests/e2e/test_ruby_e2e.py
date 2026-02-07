@@ -1,7 +1,6 @@
 """E2E tests for Ruby repository (sinatra/sinatra)."""
 
 import json
-import pytest
 
 from .base_e2e_test import RubyE2ETest
 

@@ -197,7 +197,7 @@ def run_benchmark(repo_name: str, repo_path: Path, num_queries: int) -> dict:
         with open(result_file) as f:
             return json.load(f)
     else:
-        print(f"      WARNING: No results file generated")
+        print("      WARNING: No results file generated")
         print(f"      stdout: {result.stdout[-200:]}")
         print(f"      stderr: {result.stderr[-200:]}")
         return {"error": "Benchmark failed"}

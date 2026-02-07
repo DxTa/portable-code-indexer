@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from tests.benchmarks.datasets.repoeval_loader import (
     load_repoeval,
     get_ground_truth_files,
-    RepoEvalQuery,
 )
 from tests.benchmarks.metrics import recall_at_k, precision_at_k, mean_reciprocal_rank
 

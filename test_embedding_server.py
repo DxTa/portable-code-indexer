@@ -78,7 +78,6 @@ def test_daemon_startup_shutdown():
     """Test daemon can start and stop (without actual model loading)."""
     import socket
     import os
-    import signal
     from sia_code.embed_server.daemon import EmbedDaemon
     import threading
 

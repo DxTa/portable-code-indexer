@@ -1,7 +1,6 @@
 """Unit tests for configuration management, including gitignore support."""
 
 import pytest
-from pathlib import Path
 from sia_code.config import Config, IndexingConfig, load_gitignore_patterns
 
 
@@ -250,6 +249,7 @@ class TestConfigLoadAndSave:
         config = Config()
 
         assert config.indexing is not None
+        assert config.storage.backend == "auto"
         assert isinstance(config.indexing.exclude_patterns, list)
 
     def test_config_roundtrip(self, temp_repo):
@@ -265,6 +265,17 @@ class TestConfigLoadAndSave:
 
         assert loaded_config.indexing.max_file_size_mb == config.indexing.max_file_size_mb
         assert loaded_config.indexing.exclude_patterns == config.indexing.exclude_patterns
+
+    def test_config_storage_backend_roundtrip(self, temp_repo):
+        """Test storage backend setting survives save/load."""
+        config_path = temp_repo / "config.json"
+
+        config = Config()
+        config.storage.backend = "usearch"
+        config.save(config_path)
+
+        loaded_config = Config.load(config_path)
+        assert loaded_config.storage.backend == "usearch"
 
 
 if __name__ == "__main__":

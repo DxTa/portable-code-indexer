@@ -1,7 +1,6 @@
 """E2E tests for C++ repository (nlohmann/json)."""
 
 import json
-import pytest
 
 from .base_e2e_test import CppE2ETest
 

@@ -1,7 +1,6 @@
 """Unit tests for multi-hop code research functionality."""
 
 import pytest
-from pathlib import Path
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber, ChunkId
 from sia_code.search.multi_hop import MultiHopSearchStrategy, CodeRelationship

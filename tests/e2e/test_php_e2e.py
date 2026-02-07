@@ -1,7 +1,6 @@
 """E2E tests for PHP repository (slimphp/Slim)."""
 
 import json
-import pytest
 
 from .base_e2e_test import PhpE2ETest
 

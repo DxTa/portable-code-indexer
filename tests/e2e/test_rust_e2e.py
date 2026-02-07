@@ -1,7 +1,6 @@
 """E2E tests for Rust repository (tokio-rs/tokio)."""
 
 import json
-import pytest
 
 from .base_e2e_test import RustE2ETest
 

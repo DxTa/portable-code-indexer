@@ -1,6 +1,5 @@
 """Integration test for batched indexing and lexical search."""
 
-from pathlib import Path
 
 from sia_code.config import Config
 from sia_code.indexer.coordinator import IndexingCoordinator

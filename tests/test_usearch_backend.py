@@ -2,7 +2,9 @@
 
 import tempfile
 from pathlib import Path
+import sqlite3
 
+import numpy as np
 import pytest
 
 from sia_code.core.models import Chunk
@@ -18,7 +20,7 @@ def temp_index_dir():
 
 
 @pytest.fixture
-def backend(temp_index_dir):
+def backend(temp_index_dir, monkeypatch):
     """Create a test backend instance."""
     backend = UsearchSqliteBackend(
         path=temp_index_dir,
@@ -26,6 +28,29 @@ def backend(temp_index_dir):
         ndim=384,
         dtype="f16",
     )
+
+    class DummyEmbedder:
+        def __init__(self, ndim: int):
+            self.ndim = ndim
+
+        def encode(self, texts, **kwargs):
+            def _vector(text: str) -> np.ndarray:
+                vec = np.zeros(self.ndim, dtype=np.float32)
+                text_lower = text.lower()
+                if "sum" in text_lower or "add" in text_lower:
+                    vec[0] = 1.0
+                elif "product" in text_lower or "multiply" in text_lower:
+                    vec[1] = 1.0
+                else:
+                    vec[2] = 1.0
+                return vec
+
+            if isinstance(texts, list):
+                return np.vstack([_vector(text) for text in texts])
+            return _vector(texts)
+
+    dummy = DummyEmbedder(backend.ndim)
+    monkeypatch.setattr(backend, "_get_embedder", lambda: dummy)
     backend.create_index()
     yield backend
     backend.close()
@@ -211,7 +236,7 @@ def test_export_import_memory(backend, temp_index_dir):
     assert Path(export_path).exists()
 
     # Create a new backend and import
-    backend2 = UsearchSqliteBackend(path=temp_index_dir / "backend2")
+    backend2 = UsearchSqliteBackend(path=temp_index_dir / "backend2", embedding_enabled=False)
     backend2.create_index()
 
     result = backend2.import_memory(export_path)
@@ -258,6 +283,70 @@ def test_generate_context(backend):
     assert "codebase_summary" in context["project_memory"]
     assert "recent_decisions" in context["project_memory"]
     assert context["project_memory"]["codebase_summary"]["total_chunks"] > 0
+
+
+def test_mem_put_uses_uri_when_metadata_missing(temp_index_dir):
+    backend = UsearchSqliteBackend(path=temp_index_dir, embedding_enabled=False)
+    captured = []
+    backend.store_chunks_batch = lambda chunks: captured.extend(chunks) or []
+
+    backend.mem.put(
+        title="from_uri",
+        label=ChunkType.FUNCTION.value,
+        metadata={},
+        text="def from_uri(): pass",
+        uri="pci:///tmp/usearch_uri.py#3-5",
+    )
+
+    assert captured
+    assert str(captured[0].file_path) == "/tmp/usearch_uri.py"
+    assert captured[0].start_line == 3
+    assert captured[0].end_line == 5
+
+
+def test_store_chunks_batch_keeps_stable_id_on_upsert(temp_index_dir, monkeypatch):
+    backend = UsearchSqliteBackend(path=temp_index_dir, embedding_enabled=False)
+    monkeypatch.setattr("sia_code.storage.sqlite_runtime.get_sqlite_module", lambda: sqlite3)
+
+    def create_tables_without_fts(self):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uri TEXT UNIQUE,
+                symbol TEXT,
+                chunk_type TEXT,
+                file_path TEXT,
+                start_line INTEGER,
+                end_line INTEGER,
+                language TEXT,
+                code TEXT,
+                metadata JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        self.conn.commit()
+
+    monkeypatch.setattr(backend, "_create_tables", create_tables_without_fts.__get__(backend))
+    backend.create_index()
+
+    chunk = Chunk(
+        symbol="stable",
+        start_line=1,
+        end_line=2,
+        code="def stable():\n    return 1",
+        chunk_type=ChunkType.FUNCTION,
+        language=Language.PYTHON,
+        file_path=Path("stable.py"),
+    )
+
+    first_id = backend.store_chunks_batch([chunk])[0]
+    second_id = backend.store_chunks_batch([chunk])[0]
+
+    assert first_id == second_id
+    backend.close()
 
 
 if __name__ == "__main__":

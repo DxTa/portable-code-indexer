@@ -76,7 +76,7 @@ def test_auto_unload_reload():
         time.sleep(11)  # Wait for idle timeout to pass
 
         # Manually run cleanup logic
-        from datetime import datetime, timedelta
+        from datetime import datetime
 
         now = datetime.now()
         with daemon.model_lock:
@@ -129,8 +129,8 @@ def test_auto_unload_reload():
         print(f"  - Initial load: {load_time:.2f}s")
         print(f"  - Cached use:   {cached_time:.2f}s ({load_time / cached_time:.1f}x faster)")
         print(f"  - After reload: {reload_time:.2f}s")
-        print(f"  - Model unloaded after 10s idle ✓")
-        print(f"  - Model reloaded on next request ✓")
+        print("  - Model unloaded after 10s idle ✓")
+        print("  - Model reloaded on next request ✓")
         print()
 
         return True

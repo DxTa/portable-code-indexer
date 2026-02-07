@@ -1,7 +1,6 @@
 """E2E tests for Java repository (mockito/mockito)."""
 
 import json
-import pytest
 
 from .base_e2e_test import JavaE2ETest
 
