@@ -112,10 +112,15 @@ sia-code index --clean
 
 View config: `sia-code config show`
 
-**Git worktrees:** share one index across worktrees with `SIA_CODE_INDEX_SCOPE=shared`, or set a custom path with `SIA_CODE_INDEX_DIR`.
+**Git worktrees:** by default, sia-code auto-detects worktrees and stores a single shared index in the git common dir. You can override with `SIA_CODE_INDEX_SCOPE` or set an explicit path with `SIA_CODE_INDEX_DIR`.
 
 ```bash
+# Force shared index even outside worktrees
 export SIA_CODE_INDEX_SCOPE=shared
+
+# Or disable auto-detection (per-worktree index)
+export SIA_CODE_INDEX_SCOPE=worktree
+
 sia-code init
 sia-code index .
 ```

@@ -154,6 +154,47 @@ def resolve_git_common_dir(base_dir: Path) -> Path | None:
     return common_dir
 
 
+def is_git_worktree(base_dir: Path) -> bool:
+    """Return True when base_dir is inside a git worktree.
+
+    In a normal repo, `--git-dir` and `--git-common-dir` resolve to the same path.
+    In a linked worktree, the worktree's git dir differs from the common dir.
+    """
+
+    try:
+        git_dir_result = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            cwd=base_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        common_dir_result = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=base_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+
+    git_dir_raw = git_dir_result.stdout.strip()
+    common_dir_raw = common_dir_result.stdout.strip()
+    if not git_dir_raw or not common_dir_raw:
+        return False
+
+    git_dir = Path(git_dir_raw)
+    if not git_dir.is_absolute():
+        git_dir = (base_dir / git_dir).resolve()
+
+    common_dir = Path(common_dir_raw)
+    if not common_dir.is_absolute():
+        common_dir = (base_dir / common_dir).resolve()
+
+    return git_dir != common_dir
+
+
 def get_git_commit_context(base_dir: Path) -> tuple[str | None, datetime | None]:
     """Return the current git commit hash and commit time for a directory."""
     try:
@@ -190,7 +231,9 @@ def resolve_index_dir(project_dir: Path | None = None) -> Path:
             return override_path
         return base_dir / override_path
 
-    scope = os.environ.get("SIA_CODE_INDEX_SCOPE", "worktree")
+    scope = os.environ.get("SIA_CODE_INDEX_SCOPE")
+    if not scope or scope == "auto":
+        scope = "shared" if is_git_worktree(base_dir) else "worktree"
     if scope == "shared":
         common_dir = resolve_git_common_dir(base_dir)
         if common_dir is not None:
@@ -210,9 +253,7 @@ def require_initialized() -> tuple[Path, Config]:
     """
     sia_dir = resolve_index_dir()
     if not sia_dir.exists():
-        console.print(
-            "[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]"
-        )
+        console.print("[red]Error: Sia Code not initialized. Run 'sia-code init' first.[/red]")
         sys.exit(1)
     config = Config.load(sia_dir / "config.json")
     return sia_dir, config
