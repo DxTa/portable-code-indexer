@@ -1,6 +1,7 @@
 """Abstract base class for storage backends."""
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -150,6 +151,8 @@ class StorageBackend(ABC):
         description: str,
         reasoning: str | None = None,
         alternatives: list[dict[str, Any]] | None = None,
+        commit_hash: str | None = None,
+        commit_time: datetime | None = None,
     ) -> int:
         """Add a pending decision.
 
@@ -161,6 +164,8 @@ class StorageBackend(ABC):
             description: Full decision context
             reasoning: Why this decision was made
             alternatives: Other options considered
+            commit_hash: Git commit hash at time of decision
+            commit_time: Commit timestamp for context
 
         Returns:
             Decision ID
@@ -227,6 +232,8 @@ class StorageBackend(ABC):
         files_changed: list[str] | None = None,
         diff_stats: dict[str, Any] | None = None,
         importance: str = "medium",
+        commit_hash: str | None = None,
+        commit_time: datetime | None = None,
     ) -> int:
         """Add a timeline event.
 
@@ -238,6 +245,8 @@ class StorageBackend(ABC):
             files_changed: List of affected files
             diff_stats: Statistics about the diff
             importance: 'high', 'medium', 'low'
+            commit_hash: Git commit hash for the event
+            commit_time: Git commit timestamp
 
         Returns:
             Timeline event ID
@@ -253,6 +262,8 @@ class StorageBackend(ABC):
         breaking_changes: list[str] | None = None,
         features: list[str] | None = None,
         fixes: list[str] | None = None,
+        commit_hash: str | None = None,
+        commit_time: datetime | None = None,
     ) -> int:
         """Add a changelog entry.
 
@@ -263,6 +274,8 @@ class StorageBackend(ABC):
             breaking_changes: List of breaking changes
             features: List of new features
             fixes: List of bug fixes
+            commit_hash: Git commit hash for the tag
+            commit_time: Git commit timestamp
 
         Returns:
             Changelog entry ID

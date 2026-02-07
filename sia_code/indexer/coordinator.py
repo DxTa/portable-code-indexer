@@ -5,6 +5,7 @@ import logging
 import time
 import os
 import shutil
+import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable
 
@@ -19,6 +20,42 @@ from .chunk_index import ChunkIndex
 from .metrics import PerformanceMetrics
 
 logger = logging.getLogger(__name__)
+
+
+def _get_git_commit_context(directory: Path) -> dict[str, str]:
+    try:
+        commit_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=directory,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        time_result = subprocess.run(
+            ["git", "show", "-s", "--format=%cI", "HEAD"],
+            cwd=directory,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return {}
+
+    commit_hash = commit_result.stdout.strip()
+    commit_time = time_result.stdout.strip()
+    if not commit_hash:
+        return {}
+
+    context = {"commit_hash": commit_hash}
+    if commit_time:
+        context["commit_time"] = commit_time
+    return context
+
+
+def _attach_git_context(chunks: list, context: dict[str, str]) -> list:
+    if not context:
+        return chunks
+    return [chunk.with_metadata(context) for chunk in chunks]
 
 
 def _chunk_file_worker(
@@ -162,6 +199,8 @@ class IndexingCoordinator:
 
         stats = self._create_index_stats(len(files))
 
+        git_context = _get_git_commit_context(directory)
+
         # Buffer chunks to reduce write overhead
         pending_chunks: list = []
         batch_size = max(1, self.config.indexing.chunk_batch_size)
@@ -205,7 +244,7 @@ class IndexingCoordinator:
                         pass
 
                     # Buffer chunks and flush when threshold reached
-                    pending_chunks.extend(chunks)
+                    pending_chunks.extend(_attach_git_context(chunks, git_context))
                     if len(pending_chunks) >= batch_size:
                         flush_chunks()
                     stats["indexed_files"] += 1
@@ -300,6 +339,8 @@ class IndexingCoordinator:
             embed_batch = self.backend._get_embed_batch_size()
             batch_size = min(batch_size, max(1, embed_batch * 8))
 
+        git_context = _get_git_commit_context(directory)
+
         def flush_chunks() -> None:
             if pending_chunks:
                 self.backend.store_chunks_batch(pending_chunks)
@@ -335,7 +376,7 @@ class IndexingCoordinator:
                         metrics.bytes_processed += file_size
 
                         # Buffer chunks and flush when threshold reached
-                        pending_chunks.extend(chunks)
+                        pending_chunks.extend(_attach_git_context(chunks, git_context))
                         if len(pending_chunks) >= batch_size:
                             flush_chunks()
                         stats["indexed_files"] += 1
@@ -441,6 +482,7 @@ class IndexingCoordinator:
         # Add incremental-specific fields
         stats["changed_files"] = 0
         stats["skipped_files"] = 0
+        git_context = _get_git_commit_context(directory)
 
         for idx, file_path in enumerate(files, 1):
             # Update progress for checking phase
@@ -481,6 +523,7 @@ class IndexingCoordinator:
                     metrics.bytes_processed += file_stat.st_size
 
                     # Store new chunks
+                    chunks = _attach_git_context(chunks, git_context)
                     chunk_ids = self.backend.store_chunks_batch(chunks)
                     chunk_id_strs = [str(cid) for cid in chunk_ids]
 

@@ -1,6 +1,8 @@
 """Integration test for Sia Code CLI."""
 
 import pytest
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -67,6 +69,16 @@ def run_cli(args: list, cwd: Path | None = None) -> subprocess.CompletedProcess:
     )
 
 
+def disable_embeddings(project_dir: Path) -> None:
+    config_path = project_dir / ".sia-code" / "config.json"
+    if not config_path.exists():
+        return
+    config = json.loads(config_path.read_text())
+    config.setdefault("embedding", {})
+    config["embedding"]["enabled"] = False
+    config_path.write_text(json.dumps(config, indent=2))
+
+
 class TestCLIInit:
     """Test 'sia-code init' command."""
 
@@ -83,6 +95,7 @@ class TestCLIInit:
         """Test init when already initialized."""
         # First init
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
 
         # Second init should warn
         result = run_cli(["init"], cwd=test_project)
@@ -102,6 +115,7 @@ class TestCLIStatus:
     def test_status_after_init(self, test_project):
         """Test status after initialization."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         result = run_cli(["status"], cwd=test_project)
 
         assert result.returncode == 0
@@ -120,6 +134,7 @@ class TestCLIIndex:
     def test_index_basic(self, test_project):
         """Test basic indexing."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         result = run_cli(["index", "."], cwd=test_project)
 
         assert result.returncode == 0
@@ -128,6 +143,7 @@ class TestCLIIndex:
     def test_index_clean(self, test_project):
         """Test clean indexing."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         run_cli(["index", "."], cwd=test_project)
 
         result = run_cli(["index", "--clean", "."], cwd=test_project)
@@ -160,6 +176,7 @@ class TestCLISearch:
     def test_search_lexical(self, test_project):
         """Test lexical search."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         run_cli(["index", "."], cwd=test_project)
 
         result = run_cli(["search", "hello", "--regex", "--no-filter"], cwd=test_project)
@@ -169,6 +186,7 @@ class TestCLISearch:
     def test_search_with_limit(self, test_project):
         """Test search with result limit."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         run_cli(["index", "."], cwd=test_project)
 
         result = run_cli(
@@ -180,6 +198,7 @@ class TestCLISearch:
     def test_search_json_format(self, test_project):
         """Test search with JSON output format."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         run_cli(["index", "."], cwd=test_project)
 
         result = run_cli(
@@ -193,6 +212,7 @@ class TestCLISearch:
     def test_search_table_format(self, test_project):
         """Test search with table output format."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         run_cli(["index", "."], cwd=test_project)
 
         result = run_cli(
@@ -208,6 +228,7 @@ class TestCLIConfig:
     def test_config_show(self, test_project):
         """Test config show command."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         result = run_cli(["config", "show"], cwd=test_project)
 
         assert result.returncode == 0
@@ -217,6 +238,7 @@ class TestCLIConfig:
     def test_config_path(self, test_project):
         """Test config path command."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         result = run_cli(["config", "path"], cwd=test_project)
 
         assert result.returncode == 0
@@ -237,6 +259,7 @@ class TestCLICompact:
     def test_compact_healthy_index(self, test_project):
         """Test compact on healthy index."""
         run_cli(["init"], cwd=test_project)
+        disable_embeddings(test_project)
         run_cli(["index", "."], cwd=test_project)
 
         # Need to run incremental index first to create chunk_index.json

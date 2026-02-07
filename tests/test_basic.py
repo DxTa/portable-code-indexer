@@ -3,7 +3,7 @@
 import pytest
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber
-from sia_code.storage.backend import UsearchSqliteBackend
+from sia_code.storage.usearch_backend import UsearchSqliteBackend
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ def sample_chunks():
         return self._convert_results(results)""",
             chunk_type=ChunkType.CLASS,
             language=Language.PYTHON,
-            file_path=FilePath("sia_code/storage/backend.py"),
+            file_path=FilePath("sia_code/storage/usearch_backend.py"),
         ),
         Chunk(
             symbol="Chunk",
@@ -82,7 +82,8 @@ class TestUsearchSqliteBackend:
         test_path = tmp_path / "test.sia-code"
         backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
         backend.create_index()
-        assert backend.mem is not None
+        assert backend.vector_index is not None
+        assert backend.conn is not None
         backend.close()
 
     def test_store_chunks(self, backend, sample_chunks):
@@ -199,46 +200,6 @@ class TestChunkModel:
                 language=Language.PYTHON,
                 file_path=FilePath("test.py"),
             )
-
-
-class TestURIParsing:
-    """Test URI parsing functionality."""
-
-    def test_parse_valid_uri(self, tmp_path):
-        """Test parsing valid pci:// URI."""
-        test_path = tmp_path / "test.sia-code"
-        backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
-        backend.create_index()
-
-        file_path, start, end = backend._parse_uri("pci:///home/user/file.py#42")
-        assert file_path == "/home/user/file.py"
-        assert start == 42
-        assert end == 42
-        backend.close()
-
-    def test_parse_uri_no_line(self, tmp_path):
-        """Test parsing URI without line number."""
-        test_path = tmp_path / "test.sia-code"
-        backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
-        backend.create_index()
-
-        file_path, start, end = backend._parse_uri("pci:///home/user/file.py")
-        assert file_path == "/home/user/file.py"
-        assert start == 1
-        assert end == 1
-        backend.close()
-
-    def test_parse_invalid_uri(self, tmp_path):
-        """Test parsing invalid URI returns defaults."""
-        test_path = tmp_path / "test.sia-code"
-        backend = UsearchSqliteBackend(test_path, embedding_enabled=False)
-        backend.create_index()
-
-        file_path, start, end = backend._parse_uri("invalid://something")
-        assert file_path == "unknown"
-        assert start == 1
-        assert end == 1
-        backend.close()
 
 
 class TestLanguageDetection:

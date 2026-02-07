@@ -20,20 +20,17 @@ class TestEmptyCodeHandling:
     """Test that empty code fields are handled gracefully."""
 
     def test_store_chunk_with_empty_text(self, backend):
-        """Test storing a chunk and searching doesn't crash with empty text in memvid."""
-        # Store a chunk with minimal text to memvid (empty text causes embedding issues)
-        backend.mem.put(
-            title="empty_function",
-            label=ChunkType.FUNCTION.value,
-            metadata={
-                "file_path": "test.py",
-                "start_line": 1,
-                "end_line": 1,
-                "language": Language.PYTHON.value,
-            },
-            text="# placeholder",  # Memvid needs some text
-            uri="test://test.py#1",
+        """Test storing a minimal chunk and searching doesn't crash."""
+        chunk = Chunk(
+            symbol="empty_function",
+            start_line=LineNumber(1),
+            end_line=LineNumber(1),
+            code="# placeholder",
+            chunk_type=ChunkType.FUNCTION,
+            language=Language.PYTHON,
+            file_path=FilePath("test.py"),
         )
+        backend.store_chunks_batch([chunk])
 
         # Test that search completes without error
         results = backend.search_lexical("empty", k=5)
@@ -41,19 +38,16 @@ class TestEmptyCodeHandling:
 
     def test_search_result_fallback_code(self, backend):
         """Test that search results have fallback code when text is missing."""
-        # Store a chunk
-        backend.mem.put(
-            title="test_func",
-            label=ChunkType.FUNCTION.value,
-            metadata={
-                "file_path": "test.py",
-                "start_line": 10,
-                "end_line": 20,
-                "language": Language.PYTHON.value,
-            },
-            text="def test_func(): pass",
-            uri="test://test.py#10",
+        chunk = Chunk(
+            symbol="test_func",
+            start_line=LineNumber(10),
+            end_line=LineNumber(20),
+            code="def test_func(): pass",
+            chunk_type=ChunkType.FUNCTION,
+            language=Language.PYTHON,
+            file_path=FilePath("test.py"),
         )
+        backend.store_chunks_batch([chunk])
 
         results = backend.search_lexical("test", k=5)
 

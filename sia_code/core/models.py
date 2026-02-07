@@ -166,6 +166,8 @@ class Decision:
     alternatives: list[dict[str, Any]] = field(default_factory=list)
     status: str = "pending"  # 'pending', 'approved', 'rejected'
     category: str | None = None  # Set when approved
+    commit_hash: str | None = None
+    commit_time: datetime | None = None
     created_at: datetime | None = None
     approved_at: datetime | None = None
 
@@ -180,6 +182,8 @@ class Decision:
             "alternatives": self.alternatives,
             "status": self.status,
             "category": self.category,
+            "commit_hash": self.commit_hash,
+            "commit_time": self.commit_time.isoformat() if self.commit_time else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "approved_at": self.approved_at.isoformat() if self.approved_at else None,
         }
@@ -197,6 +201,8 @@ class TimelineEvent:
     files_changed: list[str] = field(default_factory=list)
     diff_stats: dict[str, Any] = field(default_factory=dict)
     importance: str = "medium"  # 'high', 'medium', 'low'
+    commit_hash: str | None = None
+    commit_time: datetime | None = None
     created_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -210,6 +216,8 @@ class TimelineEvent:
             "files_changed": self.files_changed,
             "diff_stats": self.diff_stats,
             "importance": self.importance,
+            "commit_hash": self.commit_hash,
+            "commit_time": self.commit_time.isoformat() if self.commit_time else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -226,6 +234,8 @@ class ChangelogEntry:
     breaking_changes: list[str] = field(default_factory=list)
     features: list[str] = field(default_factory=list)
     fixes: list[str] = field(default_factory=list)
+    commit_hash: str | None = None
+    commit_time: datetime | None = None
     created_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -239,6 +249,8 @@ class ChangelogEntry:
             "breaking_changes": self.breaking_changes,
             "features": self.features,
             "fixes": self.fixes,
+            "commit_hash": self.commit_hash,
+            "commit_time": self.commit_time.isoformat() if self.commit_time else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
