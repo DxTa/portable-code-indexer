@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import sqlite3
 
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, FilePath, Language, LineNumber
@@ -60,8 +61,10 @@ def test_semantic_search_fallback(tmp_path, monkeypatch):
     class DummyEmbedder:
         def encode(self, texts, **kwargs):
             def _vec(text):
-                return np.array([1.0, 0.0, 0.0], dtype=np.float32) if "alpha" in text else np.array(
-                    [0.0, 1.0, 0.0], dtype=np.float32
+                return (
+                    np.array([1.0, 0.0, 0.0], dtype=np.float32)
+                    if "alpha" in text
+                    else np.array([0.0, 1.0, 0.0], dtype=np.float32)
                 )
 
             if isinstance(texts, list):
@@ -79,4 +82,69 @@ def test_semantic_search_fallback(tmp_path, monkeypatch):
 
     assert results
     assert results[0].chunk.symbol == "alpha_func"
+    backend.close()
+
+
+def test_mem_put_uses_uri_when_metadata_missing(tmp_path):
+    backend = SqliteVecBackend(tmp_path / "uri_parse.sia-code", embedding_enabled=False, ndim=3)
+    captured = []
+    backend.store_chunks_batch = lambda chunks: captured.extend(chunks) or []
+
+    backend.mem.put(
+        title="from_uri",
+        label=ChunkType.FUNCTION.value,
+        metadata={},
+        text="def from_uri(): pass",
+        uri="pci:///tmp/example.py#10-20",
+    )
+
+    assert captured
+    assert str(captured[0].file_path) == "/tmp/example.py"
+    assert captured[0].start_line == 10
+    assert captured[0].end_line == 20
+
+
+def test_store_chunks_batch_keeps_stable_id_on_upsert(tmp_path, monkeypatch):
+    backend = SqliteVecBackend(tmp_path / "upsert.sia-code", embedding_enabled=False, ndim=3)
+
+    monkeypatch.setattr("sia_code.storage.sqlite_runtime.get_sqlite_module", lambda: sqlite3)
+
+    def create_tables_without_fts(self):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uri TEXT UNIQUE,
+                symbol TEXT,
+                chunk_type TEXT,
+                file_path TEXT,
+                start_line INTEGER,
+                end_line INTEGER,
+                language TEXT,
+                code TEXT,
+                metadata JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        self.conn.commit()
+
+    monkeypatch.setattr(backend, "_create_tables", create_tables_without_fts.__get__(backend))
+    backend.create_index()
+
+    chunk = Chunk(
+        symbol="stable",
+        start_line=LineNumber(1),
+        end_line=LineNumber(2),
+        code="def stable():\n    return 1",
+        chunk_type=ChunkType.FUNCTION,
+        language=Language.PYTHON,
+        file_path=FilePath("stable.py"),
+    )
+
+    first_id = backend.store_chunks_batch([chunk])[0]
+    second_id = backend.store_chunks_batch([chunk])[0]
+
+    assert first_id == second_id
     backend.close()

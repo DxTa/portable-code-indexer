@@ -1,8 +1,5 @@
 """Unit tests for GitSyncService."""
 
-import tempfile
-from pathlib import Path
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 import subprocess
 
@@ -92,7 +89,7 @@ class TestGitSyncService:
         """Test dry run doesn't write to backend."""
         subprocess.run(["git", "tag", "-a", "v1.0.0", "-m", "Test"], cwd=git_repo, check=True)
 
-        stats = sync_service.sync(dry_run=True)
+        sync_service.sync(dry_run=True)
 
         mock_backend.add_changelog.assert_not_called()
         mock_backend.add_timeline_event.assert_not_called()

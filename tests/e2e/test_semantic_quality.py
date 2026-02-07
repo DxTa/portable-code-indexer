@@ -4,9 +4,7 @@ Tests measure search quality using ground-truth queries from repository document
 Requires OPENAI_API_KEY to be set for embeddings.
 """
 
-import json
 import pytest
-import subprocess
 from pathlib import Path
 
 from .base_e2e_test import BaseE2ETest
@@ -148,7 +146,7 @@ class TestSemanticQualityClick(BaseE2ETest, SemanticQualityMixin):
         hit1_pct = (hit_at_1 / num_queries) * 100
         hit5_pct = (hit_at_5 / num_queries) * 100
 
-        print(f"=== Aggregate Metrics ===")
+        print("=== Aggregate Metrics ===")
         print(f"MRR@10: {mrr:.3f}")
         print(f"Hit@1:  {hit1_pct:.1f}%  ({hit_at_1}/{num_queries})")
         print(f"Hit@5:  {hit5_pct:.1f}%  ({hit_at_5}/{num_queries})")
@@ -181,7 +179,7 @@ class TestSemanticQualityClick(BaseE2ETest, SemanticQualityMixin):
 
             # Show if semantic found something lexical didn't
             if sem_count > 0 and lex_count == 0:
-                print(f"  ✓ Semantic found results where lexical found none")
+                print("  ✓ Semantic found results where lexical found none")
 
             print()
 
@@ -205,7 +203,7 @@ class TestSemanticQualityClick(BaseE2ETest, SemanticQualityMixin):
 
             if not results.get("results"):
                 print(f"Query: {case['query']}")
-                print(f"  No results found")
+                print("  No results found")
                 print()
                 continue
 
@@ -293,7 +291,7 @@ class TestSemanticQualityPQueue(BaseE2ETest, SemanticQualityMixin):
         hit1_pct = (hit_at_1 / num_queries) * 100
         hit5_pct = (hit_at_5 / num_queries) * 100
 
-        print(f"=== Aggregate Metrics ===")
+        print("=== Aggregate Metrics ===")
         print(f"MRR@10: {mrr:.3f}")
         print(f"Hit@1:  {hit1_pct:.1f}%  ({hit_at_1}/{num_queries})")
         print(f"Hit@5:  {hit5_pct:.1f}%  ({hit_at_5}/{num_queries})")

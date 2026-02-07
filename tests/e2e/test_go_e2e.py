@@ -1,7 +1,6 @@
 """E2E tests for Go repository (gin-gonic/gin)."""
 
 import json
-import pytest
 
 from .base_e2e_test import GoE2ETest
 

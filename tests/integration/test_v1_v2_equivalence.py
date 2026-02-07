@@ -9,7 +9,6 @@ The tests now only execute against a mock v1 implementation.
 
 import pytest
 import time
-from pathlib import Path
 from sia_code.indexer.coordinator import IndexingCoordinator
 from sia_code.indexer.hash_cache import HashCache
 from sia_code.indexer.chunk_index import ChunkIndex

@@ -135,6 +135,18 @@ class TestCLIIndex:
         assert result.returncode == 0
         assert "clean" in result.stdout.lower()
 
+    def test_index_clean_removes_legacy_usearch_file(self, test_project):
+        """Test clean indexing removes legacy vectors.usearch to allow sqlite-vec migration."""
+        run_cli(["init"], cwd=test_project)
+
+        legacy_vectors = test_project / ".sia-code" / "vectors.usearch"
+        legacy_vectors.write_text("legacy")
+
+        result = run_cli(["index", "--clean", "."], cwd=test_project)
+
+        assert result.returncode == 0
+        assert not legacy_vectors.exists()
+
 
 class TestCLISearch:
     """Test 'sia-code search' command."""

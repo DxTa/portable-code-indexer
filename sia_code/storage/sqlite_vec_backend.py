@@ -19,6 +19,7 @@ from ..core.models import (
 )
 from ..core.types import ChunkType, Language
 from .base import StorageBackend
+from .sqlite_runtime import connect_sqlite
 
 
 class _MemoryAdapter:
@@ -44,9 +45,10 @@ class _MemoryAdapter:
             if language_value in Language._value2member_map_
             else Language.UNKNOWN
         )
-        start_line = int(metadata.get("start_line", 1))
-        end_line = int(metadata.get("end_line", start_line))
-        file_path = Path(metadata.get("file_path", "unknown"))
+        parsed_path, parsed_start, parsed_end = self._backend._parse_uri(uri)
+        start_line = int(metadata.get("start_line", parsed_start))
+        end_line = int(metadata.get("end_line", parsed_end))
+        file_path = Path(metadata.get("file_path", parsed_path))
 
         chunk = Chunk(
             symbol=title,
@@ -343,8 +345,7 @@ class SqliteVecBackend(StorageBackend):
         """
         if not hasattr(self._local, "conn") or self._local.conn is None:
             # Create new connection for this thread
-            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            conn.row_factory = sqlite3.Row
+            conn = connect_sqlite(self.db_path, check_same_thread=False)
             self._local.conn = conn
         return self._local.conn
 
@@ -533,8 +534,7 @@ class SqliteVecBackend(StorageBackend):
         self.path.mkdir(parents=True, exist_ok=True)
 
         # Create SQLite database (check_same_thread=False for parallel search)
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row  # Enable column access by name
+        self.conn = connect_sqlite(self.db_path, check_same_thread=False)
         self._vector_table_initialized = False
         self._create_tables()
 
@@ -551,8 +551,7 @@ class SqliteVecBackend(StorageBackend):
             raise FileNotFoundError(f"Database not found: {self.db_path}")
 
         # Open SQLite database (check_same_thread=False for parallel search)
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = connect_sqlite(self.db_path, check_same_thread=False)
         self._vector_table_initialized = False
         if writable:
             self._ensure_vector_table()
@@ -763,29 +762,56 @@ class SqliteVecBackend(StorageBackend):
         chunk_ids: list[int] = []
         embed_texts: list[str] = []
 
-        # Phase 1: INSERT or REPLACE all chunks, preserving latest data
+        # Phase 1: preserve stable IDs on conflict without REPLACE row churn
         for chunk in chunks:
             uri = f"{chunk.file_path}:{chunk.start_line}-{chunk.end_line}"
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO chunks (
-                    uri, symbol, chunk_type, file_path, start_line, end_line, language, code, metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    uri,
-                    chunk.symbol,
-                    chunk.chunk_type.value,
-                    str(chunk.file_path),
-                    chunk.start_line,
-                    chunk.end_line,
-                    chunk.language.value,
-                    chunk.code,
-                    json.dumps(chunk.metadata),
-                ),
-            )
-            chunk_id = cursor.lastrowid
-            chunk_ids.append(int(chunk_id))
+            cursor.execute("SELECT id FROM chunks WHERE uri = ?", (uri,))
+            row = cursor.fetchone()
+
+            if row is None:
+                cursor.execute(
+                    """
+                    INSERT INTO chunks (
+                        uri, symbol, chunk_type, file_path, start_line, end_line, language, code, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        uri,
+                        chunk.symbol,
+                        chunk.chunk_type.value,
+                        str(chunk.file_path),
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.language.value,
+                        chunk.code,
+                        json.dumps(chunk.metadata),
+                    ),
+                )
+                chunk_id = int(cursor.lastrowid)
+            else:
+                chunk_id = int(row[0])
+                cursor.execute("DELETE FROM chunks WHERE id = ?", (chunk_id,))
+                cursor.execute(
+                    """
+                    INSERT INTO chunks (
+                        id, uri, symbol, chunk_type, file_path, start_line, end_line, language, code, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        chunk_id,
+                        uri,
+                        chunk.symbol,
+                        chunk.chunk_type.value,
+                        str(chunk.file_path),
+                        chunk.start_line,
+                        chunk.end_line,
+                        chunk.language.value,
+                        chunk.code,
+                        json.dumps(chunk.metadata),
+                    ),
+                )
+
+            chunk_ids.append(chunk_id)
             embed_texts.append(f"{chunk.symbol}\n\n{chunk.code}")
 
         # Phase 2: Batch-embed all chunks (inserted or updated)

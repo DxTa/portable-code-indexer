@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+import sqlite3
 
 import numpy as np
 import pytest
@@ -27,6 +28,7 @@ def backend(temp_index_dir, monkeypatch):
         ndim=384,
         dtype="f16",
     )
+
     class DummyEmbedder:
         def __init__(self, ndim: int):
             self.ndim = ndim
@@ -281,6 +283,70 @@ def test_generate_context(backend):
     assert "codebase_summary" in context["project_memory"]
     assert "recent_decisions" in context["project_memory"]
     assert context["project_memory"]["codebase_summary"]["total_chunks"] > 0
+
+
+def test_mem_put_uses_uri_when_metadata_missing(temp_index_dir):
+    backend = UsearchSqliteBackend(path=temp_index_dir, embedding_enabled=False)
+    captured = []
+    backend.store_chunks_batch = lambda chunks: captured.extend(chunks) or []
+
+    backend.mem.put(
+        title="from_uri",
+        label=ChunkType.FUNCTION.value,
+        metadata={},
+        text="def from_uri(): pass",
+        uri="pci:///tmp/usearch_uri.py#3-5",
+    )
+
+    assert captured
+    assert str(captured[0].file_path) == "/tmp/usearch_uri.py"
+    assert captured[0].start_line == 3
+    assert captured[0].end_line == 5
+
+
+def test_store_chunks_batch_keeps_stable_id_on_upsert(temp_index_dir, monkeypatch):
+    backend = UsearchSqliteBackend(path=temp_index_dir, embedding_enabled=False)
+    monkeypatch.setattr("sia_code.storage.sqlite_runtime.get_sqlite_module", lambda: sqlite3)
+
+    def create_tables_without_fts(self):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                uri TEXT UNIQUE,
+                symbol TEXT,
+                chunk_type TEXT,
+                file_path TEXT,
+                start_line INTEGER,
+                end_line INTEGER,
+                language TEXT,
+                code TEXT,
+                metadata JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        self.conn.commit()
+
+    monkeypatch.setattr(backend, "_create_tables", create_tables_without_fts.__get__(backend))
+    backend.create_index()
+
+    chunk = Chunk(
+        symbol="stable",
+        start_line=1,
+        end_line=2,
+        code="def stable():\n    return 1",
+        chunk_type=ChunkType.FUNCTION,
+        language=Language.PYTHON,
+        file_path=Path("stable.py"),
+    )
+
+    first_id = backend.store_chunks_batch([chunk])[0]
+    second_id = backend.store_chunks_batch([chunk])[0]
+
+    assert first_id == second_id
+    backend.close()
 
 
 if __name__ == "__main__":

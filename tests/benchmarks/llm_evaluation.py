@@ -12,7 +12,6 @@ from pathlib import Path
 
 from .tasks.architectural_tasks import ArchitecturalTask
 from .tasks.evaluation_prompts import (
-    create_analysis_prompt,
     create_judge_prompt,
     create_comparison_prompt,
     create_retrieval_quality_prompt,

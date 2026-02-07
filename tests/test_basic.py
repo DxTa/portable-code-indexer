@@ -1,7 +1,6 @@
 """Basic test of Sia Code functionality (lexical search only)."""
 
 import pytest
-from pathlib import Path
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber
 from sia_code.storage.backend import UsearchSqliteBackend

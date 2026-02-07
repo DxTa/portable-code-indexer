@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -182,6 +183,13 @@ class SummarizationConfig(BaseModel):
     max_commits: int = 20  # Max commits to include in summary
 
 
+class StorageConfig(BaseModel):
+    """Storage backend selection configuration."""
+
+    # auto: pick usearch for legacy indexes (vectors.usearch exists), sqlite-vec otherwise
+    backend: Literal["auto", "sqlite-vec", "usearch"] = "auto"
+
+
 class Config(BaseModel):
     """Main PCI configuration."""
 
@@ -194,6 +202,7 @@ class Config(BaseModel):
     documentation: DocumentationConfig = Field(default_factory=DocumentationConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
+    storage: StorageConfig = Field(default_factory=StorageConfig)
 
     @classmethod
     def load(cls, path: Path) -> "Config":

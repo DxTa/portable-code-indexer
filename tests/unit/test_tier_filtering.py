@@ -1,7 +1,6 @@
 """Tests for tier-based search filtering (Phase 1)."""
 
 import pytest
-from pathlib import Path
 from sia_code.core.models import Chunk
 from sia_code.core.types import ChunkType, Language, FilePath, LineNumber
 from sia_code.storage.usearch_backend import UsearchSqliteBackend

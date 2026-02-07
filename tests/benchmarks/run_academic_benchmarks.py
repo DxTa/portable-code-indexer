@@ -32,7 +32,7 @@ from .datasets.ground_truth_sia_code import (
     GroundTruthQuery,
 )
 from .retrievers import create_retriever
-from .metrics import recall_at_k, precision_at_k, mean_reciprocal_rank
+from .metrics import recall_at_k, precision_at_k
 
 
 def evaluate_retriever_on_query(
@@ -363,10 +363,10 @@ def main():
         stats = get_dataset_stats()
         print("\n=== Ground-Truth Dataset Statistics ===")
         print(f"Total queries: {stats['total_queries']}")
-        print(f"\nBy difficulty:")
+        print("\nBy difficulty:")
         for diff, count in stats["by_difficulty"].items():
             print(f"  {diff}: {count}")
-        print(f"\nBy category:")
+        print("\nBy category:")
         for cat, count in stats["by_category"].items():
             print(f"  {cat}: {count}")
         print(f"\nAvg relevant files per query: {stats['avg_relevant_files_per_query']:.1f}")
