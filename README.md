@@ -106,8 +106,6 @@ Note: backend selection is auto by default (`sqlite-vec` for new indexes, legacy
 - `docs/MEMORY_FEATURES.md` - memory workflow
 - `docs/BENCHMARK_RESULTS.md` - benchmark summary
 
-For historical notes and compact reports, see the root-level markdown files.
-
 ## License
 
 MIT
