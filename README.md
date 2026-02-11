@@ -68,6 +68,27 @@ sia-code status
 
 Use `--no-deps` when you want only your project code.
 
+## Git Sync Memory + Semantic Changelog
+
+`sia-code memory sync-git` is the fastest way to build project memory from git history.
+
+- Scans tags into changelog entries
+- Scans merge commits into timeline events
+- Stores `files_changed` and diff stats (`insertions`, `deletions`, `files`)
+- Optionally enhances sparse summaries using a local summarization model
+
+How semantic summary generation works:
+
+1. `sync-git` collects git context (tags, merges, commit ranges, diff stats)
+2. It gathers commit subjects for each release/merge window
+3. A local model (default `google/flan-t5-base`) generates a concise summary sentence
+4. The enhanced summary is stored in memory and later exposed by `memory changelog`
+
+```bash
+sia-code memory sync-git
+sia-code memory changelog --format markdown
+```
+
 ## LLM CLI Integration
 
 This repo includes a compact reusable skill at:

@@ -28,7 +28,7 @@ sia-code status
 
 | Command | Purpose | Key options |
 | --- | --- | --- |
-| `memory sync-git` | Import timeline/changelog from git | `--since`, `--limit`, `--dry-run`, `--tags-only`, `--merges-only`, `--min-importance` |
+| `memory sync-git` | Import timeline/changelog from git (with diff stats and optional local semantic summaries) | `--since`, `--limit`, `--dry-run`, `--tags-only`, `--merges-only`, `--min-importance` |
 | `memory add-decision TITLE` | Add pending decision | `-d/--description` (required), `-r/--reasoning`, `-a/--alternatives` |
 | `memory list` | List memory items | `--type`, `--status`, `--limit`, `--format` |
 | `memory approve ID` | Approve decision | `-c/--category` (required) |
@@ -37,6 +37,8 @@ sia-code status
 | `memory timeline` | View timeline events | `--since`, `--event-type`, `--importance`, `--format` |
 | `memory changelog [RANGE]` | Generate changelog | `--format`, `--output` |
 | `memory export` / `memory import` | Backup/restore memory | `-o/--output`, `-i/--input` |
+
+`memory sync-git` is the entrypoint for semantic changelog generation: it extracts git context, then (if enabled) uses the local summarizer to enrich release and merge summaries stored in memory.
 
 ## Embed Daemon
 

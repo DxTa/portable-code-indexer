@@ -25,6 +25,38 @@ sia-code memory approve 1 --category architecture
 sia-code memory search "Adopt X" --type decision
 ```
 
+## Why `sync-git` matters
+
+`memory sync-git` turns git history into searchable project context.
+
+- Tags become changelog memory entries
+- Merge commits become timeline memory events
+- Each event captures changed files and diff stats
+- Duplicate events are skipped automatically
+
+This gives LLM agents structured context instead of raw git noise.
+
+## Semantic changelog generation (local model)
+
+When summarization is enabled, Sia Code can upgrade sparse tag/merge summaries.
+
+Process:
+
+1. Read git structure: tags, merge refs, and diff stats
+2. Collect commit subjects for the relevant range
+3. Run local summarization model (default `google/flan-t5-base`)
+4. Save enhanced text into memory changelog/timeline records
+
+```bash
+sia-code memory sync-git
+sia-code memory changelog --format markdown
+```
+
+Notes:
+
+- Model inference is local (no required remote API)
+- If model/dependencies are unavailable, Sia Code falls back to original git summary text
+
 ## Key Commands
 
 | Command | Purpose |
