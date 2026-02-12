@@ -117,6 +117,59 @@ sia-code config set search.vector_weight 0.0
 
 Note: backend selection is auto by default (`sqlite-vec` for new indexes, legacy `usearch` supported).
 
+## Multi-Worktree / Multi-Agent Setup
+
+Yes - Sia Code works with multiple git worktrees and multiple LLM CLI instances.
+
+Scope resolution order:
+
+1. `SIA_CODE_INDEX_DIR` (explicit path override)
+2. `SIA_CODE_INDEX_SCOPE` (`shared`, `worktree`, or `auto`)
+3. `auto` fallback:
+   - linked worktree -> shared index at `<git-common-dir>/sia-code`
+   - normal checkout -> local `.sia-code`
+
+```bash
+# Shared index across worktrees/agents
+export SIA_CODE_INDEX_SCOPE=shared
+
+# Isolated index per worktree
+export SIA_CODE_INDEX_SCOPE=worktree
+
+# Full explicit control
+export SIA_CODE_INDEX_DIR=/absolute/path/to/sia-index
+```
+
+Typical worktree workflow:
+
+```bash
+# in main checkout (build shared index once)
+export SIA_CODE_INDEX_SCOPE=shared
+sia-code init
+sia-code index .
+
+# create feature worktree
+git worktree add ../feat-auth feat/auth
+cd ../feat-auth
+
+# reuse same shared index, then incrementally refresh
+sia-code status
+sia-code index --update
+```
+
+When a worktree is merged/removed:
+
+- `shared` scope: index stays in git common dir and remains usable
+- `worktree` scope: index lives in that worktree directory and is removed with it
+- after merge, run `sia-code index --update` in the remaining checkout
+
+Practical guidance:
+
+- Many readers/searchers are fine in shared mode
+- Prefer one active index writer per shared index
+- For strict branch/agent isolation, use `worktree`
+- Teams on different machines should keep local indexes and sync context via git + `sia-code memory sync-git`
+
 ## Documentation
 
 - `docs/CLI_FEATURES.md` - concise CLI command reference

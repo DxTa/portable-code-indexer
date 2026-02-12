@@ -17,6 +17,25 @@ sia-code index .
 | Parallel | `sia-code index --parallel --workers 8` | Large repos |
 | Watch | `sia-code index --watch --debounce 2.0` | Continuous local development |
 
+## Worktrees and Multiple Agent Sessions
+
+Sia Code supports git worktrees and parallel LLM CLI sessions.
+
+- Auto behavior in linked worktrees: shared index at `<git-common-dir>/sia-code`
+- Override behavior with env vars:
+
+```bash
+export SIA_CODE_INDEX_SCOPE=shared   # share one index across worktrees
+export SIA_CODE_INDEX_SCOPE=worktree # per-worktree .sia-code
+export SIA_CODE_INDEX_DIR=/absolute/path/to/sia-index
+```
+
+Practical guidance:
+
+- Many concurrent readers/searchers are fine
+- For indexing, prefer one writer at a time on the same shared index
+- If you need hard isolation per agent, use `SIA_CODE_INDEX_SCOPE=worktree`
+
 ## What gets indexed
 
 - Code files for supported languages
