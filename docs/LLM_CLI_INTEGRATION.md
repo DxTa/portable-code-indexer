@@ -45,6 +45,30 @@ uvx sia-code memory search "topic"
 uvx sia-code memory add-decision "Decision title" -d "Context" -r "Reason"
 ```
 
+## 5) Multiple worktrees / multiple Claude Code instances
+
+Use one of these index strategies per session:
+
+```bash
+# Shared index across worktrees/instances (best for reuse)
+export SIA_CODE_INDEX_SCOPE=shared
+
+# Isolated index per worktree/instance
+export SIA_CODE_INDEX_SCOPE=worktree
+```
+
+If you need full control, set an explicit directory:
+
+```bash
+export SIA_CODE_INDEX_DIR=/absolute/path/to/sia-index
+```
+
+Recommendation:
+
+- Shared mode for many search/read sessions
+- Worktree mode when you want strict isolation per branch/agent
+- For shared mode, avoid many simultaneous index writers
+
 ## Notes
 
 - Keep the skill file short and practical for agent speed.
