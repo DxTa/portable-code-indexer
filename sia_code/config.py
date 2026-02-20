@@ -149,6 +149,18 @@ class SearchConfig(BaseModel):
     include_dependencies: bool = True  # Default: deps always included in search
 
 
+class ChunkHoundConfig(BaseModel):
+    """ChunkHound CLI integration settings."""
+
+    command: str = "uvx chunkhound"
+    db_filename: str = "chunkhound.db"
+    default_search_mode: Literal["regex", "semantic"] = "regex"
+    no_embeddings_for_index: bool = True
+    no_embeddings_for_regex_search: bool = True
+    research_prompt_prefix: str = ""
+    research_fallback_to_regex: bool = True
+
+
 class DependencyConfig(BaseModel):
     """Dependency indexing configuration."""
 
@@ -197,6 +209,7 @@ class Config(BaseModel):
     indexing: IndexingConfig = Field(default_factory=IndexingConfig)
     chunking: ChunkingConfig = Field(default_factory=ChunkingConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
+    chunkhound: ChunkHoundConfig = Field(default_factory=ChunkHoundConfig)
     # New configuration sections
     dependencies: DependencyConfig = Field(default_factory=DependencyConfig)
     documentation: DocumentationConfig = Field(default_factory=DocumentationConfig)

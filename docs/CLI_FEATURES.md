@@ -18,8 +18,8 @@ sia-code status
 | --- | --- | --- |
 | `init` | Create `.sia-code/` index workspace | `--path`, `--dry-run` |
 | `index [PATH]` | Build index | `--update`, `--clean`, `--parallel`, `--workers`, `--watch`, `--debounce`, `--no-git-sync` |
-| `search QUERY` | Search code (default hybrid) | `--regex`, `--semantic-only`, `-k/--limit`, `--no-filter`, `--no-deps`, `--deps-only`, `--format`, `--output` |
-| `research QUESTION` | Multi-hop architecture exploration | `--hops`, `--graph`, `-k/--limit`, `--no-filter` |
+| `search QUERY` | Search code (ChunkHound-backed) | `--regex`, `--semantic-only`, `-k/--limit`, `--no-filter` (compat), `--no-deps` (compat), `--deps-only` (compat), `--format`, `--output` |
+| `research QUESTION` | Architecture exploration (ChunkHound-backed) | `--hops` (compat), `--graph` (compat), `-k/--limit` (compat), `--no-filter` (compat) |
 | `status` | Index health and statistics | none |
 | `compact [PATH]` | Remove stale chunks | `--threshold`, `--force` |
 | `interactive` | Live query loop | `--regex`, `-k/--limit` |
@@ -72,7 +72,7 @@ sia-code config set search.vector_weight 0.0
 - Ongoing work: `sia-code index --update`
 - Exact symbols: `sia-code search --regex "pattern"`
 - Project-only focus: `--no-deps`
-- Architecture questions: `sia-code research "..." --hops 3`
+- Architecture questions: `sia-code research "..."`
 
 ## Related Docs
 

@@ -19,36 +19,52 @@ This is a compact, repo-local variant intended for easy copy/paste into LLM CLI 
 uvx sia-code init
 uvx sia-code index .
 
-# fast lexical search (great for identifiers)
+# fast lexical search (ChunkHound-backed)
 uvx sia-code search --regex "auth|login|token"
 
-# architecture exploration
+# architecture exploration (ChunkHound-backed)
 uvx sia-code research "how does authentication flow work?"
 
 # health check
 uvx sia-code status
 ```
 
+## Search + Research Backend
+
+`sia-code search` and `sia-code research` are powered by ChunkHound CLI.
+Sia's own memory/decision database remains unchanged.
+
+Install once:
+
+```bash
+uv tool install chunkhound
+```
+
 ## Search Modes
 
-- `uvx sia-code search "query"`: default hybrid search (BM25 + semantic)
-- `uvx sia-code search --regex "pattern"`: lexical search only (usually best for exact symbols)
-- `uvx sia-code search --semantic-only "query"`: semantic-only search
+- `uvx sia-code search "query"`: default mode from config (`chunkhound.default_search_mode`)
+- `uvx sia-code search --regex "pattern"`: lexical search (recommended for exact symbols)
+- `uvx sia-code search --semantic-only "query"`: semantic search (requires embedding setup)
 
-Useful flags:
+Supported flags:
 
 - `-k, --limit <N>`: result count
-- `--no-deps`: project code only
-- `--deps-only`: dependency code only
-- `--format json|table|csv`: structured output
+- `--format json|table|csv`: output shaping in Sia wrapper
+
+Compatibility notes (currently no-op with ChunkHound):
+
+- `--no-deps`
+- `--deps-only`
+- `--no-filter`
 
 ## Multi-Hop Research
 
 ```bash
-uvx sia-code research "how is config loaded?" --hops 3 --graph
+uvx sia-code research "how is config loaded?"
 ```
 
 - Use for dependency tracing, call flow mapping, and architecture questions.
+- `--hops`, `--graph`, and `--limit` are accepted for compatibility in Sia but ignored by ChunkHound CLI.
 
 ## Memory Workflow
 
@@ -90,12 +106,12 @@ uvx sia-code memory add-decision "..." -d "..." -r "..."
 ## Troubleshooting
 
 - If uninitialized: run `uvx sia-code init && uvx sia-code index .`
-- If results look stale: run `uvx sia-code index --update` (or `--clean` after major refactors)
+- If results look stale: run `uvx sia-code index --update` (this also syncs ChunkHound index)
 - If memory add/search fails with embedding issues: run `uvx sia-code embed start`
-- If too much dependency noise: add `--no-deps`
+- If ChunkHound is missing: run `uv tool install chunkhound`
 
 ## Notes
 
 - Lexical search is often strong for code due to exact identifiers.
-- Hybrid/semantic search may require embedding setup depending on configuration.
+- Semantic research/search requires ChunkHound embedding/LLM provider setup.
 - Keep this file short and operational; move deep theory to project docs.

@@ -22,6 +22,16 @@ from rich.table import Table
 from . import __version__
 from .config import Config
 from .indexer.coordinator import IndexingCoordinator
+from .search.chunkhound_cli import (
+    build_index_command,
+    build_research_command,
+    build_search_command,
+    chunkhound_db_path,
+    parse_search_output,
+    resolve_search_mode,
+    research_needs_llm_fallback,
+    run_chunkhound_command,
+)
 
 console = Console()
 
@@ -519,6 +529,29 @@ def index(
             # Close backend to persist vectors to disk
             backend.close()
 
+            # Keep ChunkHound index in sync for search/research commands
+            chunkhound_command = build_index_command(
+                config=config,
+                project_path=directory,
+                db_path=chunkhound_db_path(sia_dir, config),
+                force_reindex=clean,
+            )
+            chunkhound_result = run_chunkhound_command(
+                chunkhound_command,
+                cwd=Path("."),
+                capture_output=True,
+            )
+            if chunkhound_result.returncode != 0:
+                console.print("[red]ChunkHound indexing failed[/red]")
+                if chunkhound_result.stdout:
+                    print(chunkhound_result.stdout, end="")
+                if chunkhound_result.stderr:
+                    print(chunkhound_result.stderr, end="", file=sys.stderr)
+                sys.exit(chunkhound_result.returncode)
+            console.print(
+                f"[dim]ChunkHound index synced at {chunkhound_db_path(sia_dir, config)}[/dim]"
+            )
+
             # Auto-sync git history (unless disabled or in watch mode)
             if not no_git_sync and not watch:
                 try:
@@ -624,6 +657,25 @@ def index(
                         f"[green]✓[/green] Re-indexed {stats['files_indexed']} files, {stats['chunks_indexed']} chunks"
                     )
 
+                    # Sync ChunkHound index for watch-mode updates
+                    chunkhound_command = build_index_command(
+                        config=config,
+                        project_path=Path(path),
+                        db_path=chunkhound_db_path(sia_dir, config),
+                        force_reindex=False,
+                    )
+                    chunkhound_result = run_chunkhound_command(
+                        chunkhound_command,
+                        cwd=Path("."),
+                        capture_output=True,
+                    )
+                    if chunkhound_result.returncode == 0:
+                        console.print("[green]✓[/green] ChunkHound index synced")
+                    else:
+                        console.print("[yellow]ChunkHound sync failed during watch update[/yellow]")
+                        if chunkhound_result.stderr:
+                            console.print(f"[dim]{chunkhound_result.stderr.strip()}[/dim]")
+
                 except Exception as e:
                     console.print(f"[red]Error during re-indexing: {e}[/red]")
                 finally:
@@ -677,181 +729,87 @@ def search(
     output_format: str,
     output: str | None,
 ):
-    """Search the codebase (default: hybrid BM25 + semantic)."""
-    from .indexer.chunk_index import ChunkIndex
+    """Search the codebase via ChunkHound CLI."""
+    import csv
+    import io
+    import json
 
     sia_dir, config = require_initialized()
 
-    # Load chunk index for filtering (if available and not disabled)
-    valid_chunks = None
-    if not no_filter:
-        chunk_index_path = sia_dir / "chunk_index.json"
-        if chunk_index_path.exists():
-            try:
-                chunk_index = ChunkIndex(chunk_index_path)
-                valid_chunks = chunk_index.get_valid_chunks()
-            except Exception:
-                pass  # Silently fall back to no filtering
+    if no_deps:
+        console.print("[yellow]Note:[/yellow] --no-deps is ignored by ChunkHound-backed search")
+    if deps_only:
+        console.print("[yellow]Note:[/yellow] --deps-only is ignored by ChunkHound-backed search")
+    if no_filter:
+        console.print("[dim]Note: --no-filter has no effect with ChunkHound-backed search[/dim]")
 
-    # Handle mutually exclusive dependency flags
-    if no_deps and deps_only:
-        console.print("[red]Error: --no-deps and --deps-only are mutually exclusive[/red]")
-        sys.exit(1)
+    mode = resolve_search_mode(config, regex=regex, semantic_only=semantic_only)
+    db_path = chunkhound_db_path(sia_dir, config)
 
-    backend = create_backend(sia_dir, config, valid_chunks=valid_chunks)
-    backend.open_index()
+    command = build_search_command(
+        config=config,
+        query=query,
+        project_path=Path("."),
+        db_path=db_path,
+        mode=mode,
+        limit=limit,
+    )
 
-    # Determine dependency filtering
-    # Default: include deps (from config or True)
-    # --no-deps: exclude deps
-    # --deps-only: show only deps (include_deps=True, then filter results)
-    include_deps = not no_deps  # Exclude deps if --no-deps is set
-    tier_boost = config.search.tier_boost if hasattr(config.search, "tier_boost") else None
+    result = run_chunkhound_command(command, cwd=Path("."), capture_output=True)
 
-    # Determine search mode (NEW: hybrid by default)
-    if regex:
-        mode = "lexical"
-    elif semantic_only:
-        mode = "semantic"
-    else:
-        mode = "hybrid"  # NEW DEFAULT: BM25 + semantic
+    # Graceful semantic->regex fallback for embedding-misconfigured repos
+    if result.returncode != 0 and mode == "semantic":
+        combined = f"{result.stdout}\n{result.stderr}".lower()
+        if "no embedding providers available" in combined:
+            console.print("[yellow]Semantic search unavailable; retrying with regex mode.[/yellow]")
+            mode = "regex"
+            command = build_search_command(
+                config=config,
+                query=query,
+                project_path=Path("."),
+                db_path=db_path,
+                mode=mode,
+                limit=limit,
+            )
+            result = run_chunkhound_command(command, cwd=Path("."), capture_output=True)
 
-    filter_status = "" if no_filter or not valid_chunks else " [filtered]"
-    deps_status = " [no-deps]" if no_deps else " [deps-only]" if deps_only else ""
+    if result.returncode != 0:
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        sys.exit(result.returncode)
 
-    # Suppress progress messages for structured output formats
-    if output_format not in ("json", "csv"):
-        console.print(f"[dim]Searching ({mode}{filter_status}{deps_status})...[/dim]")
+    parsed = parse_search_output(result.stdout, query=query, mode=mode)
 
-    # Execute search based on mode
-    if regex:
-        results = backend.search_lexical(
-            query, k=limit, include_deps=include_deps, tier_boost=tier_boost
-        )
-    elif semantic_only:
-        results = backend.search_semantic(
-            query, k=limit, include_deps=include_deps, tier_boost=tier_boost
-        )
-    else:
-        # NEW: Hybrid search (BM25 + semantic) for best performance
-        results = backend.search_hybrid(
-            query,
-            k=limit,
-            vector_weight=config.search.vector_weight,
-            include_deps=include_deps,
-            tier_boost=tier_boost,
-        )
-
-    # Filter for --deps-only after search
-    if deps_only and results:
-        results = [r for r in results if r.chunk.metadata.get("tier") == "dependency"]
-
-    if not results:
-        # Handle empty results based on output format
-        if output_format == "json":
-            import json
-
-            empty_output = {"query": query, "mode": mode, "results": []}
-            print(json.dumps(empty_output, indent=2))
-        elif output_format == "csv":
-            # CSV header only for empty results
-            print("File,Start Line,End Line,Symbol,Score,Preview")
-        else:
-            console.print("[yellow]No results found[/yellow]")
-        return
-
-    # Format results based on output_format
     if output_format == "json":
-        import json
-
-        output_data = {"query": query, "mode": mode, "results": [r.to_dict() for r in results]}
-        formatted_output = json.dumps(output_data, indent=2)
+        rendered = json.dumps(parsed, indent=2)
     elif output_format == "csv":
-        import csv
-        import io
-
-        csv_buffer = io.StringIO()
-        csv_writer = csv.writer(csv_buffer)
-        # Write header
-        csv_writer.writerow(["File", "Start Line", "End Line", "Symbol", "Score", "Preview"])
-        # Write rows
-        for result in results:
-            chunk = result.chunk
-            preview = (result.snippet or chunk.code)[:100].replace("\n", " ").replace("\r", "")
-            csv_writer.writerow(
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(["File", "Start Line", "End Line", "Symbol", "Score", "Preview"])
+        for item in parsed["results"]:
+            chunk = item["chunk"]
+            snippet = (item.get("snippet") or chunk.get("code") or "").replace("\n", " ")
+            writer.writerow(
                 [
-                    chunk.file_path,
-                    chunk.start_line,
-                    chunk.end_line,
-                    chunk.symbol,
-                    f"{result.score:.3f}",
-                    preview,
+                    chunk.get("file_path", ""),
+                    chunk.get("start_line", ""),
+                    chunk.get("end_line", ""),
+                    chunk.get("symbol", ""),
+                    f"{item.get('score', 0.0):.3f}",
+                    snippet[:120],
                 ]
             )
-        formatted_output = csv_buffer.getvalue()
-    elif output_format == "table":
-        table = Table(title=f"Search Results: {query}")
-        table.add_column("File", style="cyan")
-        table.add_column("Line", style="dim")
-        table.add_column("Symbol", style="bold")
-        table.add_column("Score", justify="right")
-        table.add_column("Preview", style="dim")
+        rendered = buffer.getvalue()
+    else:
+        rendered = result.stdout
 
-        for result in results:
-            chunk = result.chunk
-            preview = (result.snippet or chunk.code)[:80].replace("\n", " ")
-            table.add_row(
-                str(chunk.file_path),
-                f"{chunk.start_line}-{chunk.end_line}",
-                chunk.symbol,
-                f"{result.score:.3f}",
-                preview + "..." if len(preview) == 80 else preview,
-            )
-        formatted_output = table
-    else:  # text format (default)
-        formatted_output = None
-        for i, result in enumerate(results, 1):
-            chunk = result.chunk
-            console.print(f"\n[bold cyan]{i}. {chunk.symbol}[/bold cyan]")
-            console.print(f"[dim]{chunk.file_path}:{chunk.start_line}-{chunk.end_line}[/dim]")
-            console.print(f"Score: {result.score:.3f}")
-            if result.snippet:
-                console.print(f"\n{result.snippet}\n")
-
-    # Save to file or print to console
     if output:
-        try:
-            output_path = Path(output)
-            if output_format == "json" or output_format == "csv":
-                assert isinstance(formatted_output, str)
-                output_path.write_text(formatted_output)
-            elif output_format == "table":
-                from rich.console import Console as FileConsole
-
-                with open(output_path, "w") as f:
-                    file_console = FileConsole(file=f, width=120)
-                    file_console.print(formatted_output)
-            else:  # text format
-                # Re-format as plain text for file output
-                lines = []
-                for i, result in enumerate(results, 1):
-                    chunk = result.chunk
-                    lines.append(f"{i}. {chunk.symbol}")
-                    lines.append(f"   {chunk.file_path}:{chunk.start_line}-{chunk.end_line}")
-                    lines.append(f"   Score: {result.score:.3f}")
-                    if result.snippet:
-                        lines.append(f"\n{result.snippet}\n")
-                output_path.write_text("\n".join(lines))
-            console.print(f"[green]✓[/green] Results saved to {output}")
-        except Exception as e:
-            console.print(f"[red]Error saving to file: {e}[/red]")
-            sys.exit(1)
-    elif formatted_output is not None:
-        if output_format == "json" or output_format == "csv":
-            # Use print() for JSON/CSV to avoid rich console formatting
-            print(formatted_output)
-        else:  # table
-            console.print(formatted_output)
+        Path(output).write_text(rendered)
+        console.print(f"[green]✓[/green] Results saved to {output}")
+    else:
+        print(rendered, end="" if rendered.endswith("\n") else "\n")
 
 
 @main.command()
@@ -999,89 +957,51 @@ def interactive(regex: bool, limit: int):
 @click.option("-k", "--limit", type=int, default=5, help="Results per hop")
 @click.option("--no-filter", is_flag=True, help="Disable stale chunk filtering")
 def research(question: str, hops: int, graph: bool, limit: int, no_filter: bool):
-    """Multi-hop code research for architectural questions.
-
-    Automatically discovers code relationships and builds a complete picture.
-
-    Examples:
-        sia-code research "How does authentication work?"
-        sia-code research "What calls the indexer?" --graph
-        sia-code research "How is configuration loaded?" --hops 3
-    """
-    from .indexer.chunk_index import ChunkIndex
-    from .search.multi_hop import MultiHopSearchStrategy
-
+    """Run architecture research via ChunkHound CLI."""
     sia_dir, config = require_initialized()
 
-    # Load chunk index for filtering (if available and not disabled)
-    valid_chunks = None
-    if not no_filter:
-        chunk_index_path = sia_dir / "chunk_index.json"
-        if chunk_index_path.exists():
-            try:
-                chunk_index = ChunkIndex(chunk_index_path)
-                valid_chunks = chunk_index.get_valid_chunks()
-            except Exception:
-                pass  # Silently fall back to no filtering
+    if hops != 2:
+        console.print("[dim]Note: --hops is accepted for compatibility but ignored.[/dim]")
+    if graph:
+        console.print("[dim]Note: --graph is accepted for compatibility but ignored.[/dim]")
+    if no_filter:
+        console.print("[dim]Note: --no-filter has no effect with ChunkHound-backed research.[/dim]")
+    if limit != 5:
+        console.print("[dim]Note: --limit is accepted for compatibility but ignored.[/dim]")
 
-    backend = create_backend(sia_dir, config, valid_chunks=valid_chunks)
-    backend.open_index()
+    db_path = chunkhound_db_path(sia_dir, config)
+    command = build_research_command(
+        config=config,
+        question=question,
+        project_path=Path("."),
+        db_path=db_path,
+    )
+    result = run_chunkhound_command(command, cwd=Path("."), capture_output=True)
 
-    strategy = MultiHopSearchStrategy(backend, max_hops=hops)
+    if result.returncode != 0:
+        combined = f"{result.stdout}\n{result.stderr}"
+        if config.chunkhound.research_fallback_to_regex and research_needs_llm_fallback(combined):
+            console.print(
+                "[yellow]ChunkHound research requires LLM config; falling back to regex search.[/yellow]"
+            )
+            fallback_command = build_search_command(
+                config=config,
+                query=question,
+                project_path=Path("."),
+                db_path=db_path,
+                mode="regex",
+                limit=limit,
+            )
+            result = run_chunkhound_command(fallback_command, cwd=Path("."), capture_output=True)
 
-    console.print(f"[dim]Researching: {question}[/dim]")
-    console.print(f"[dim]Max hops: {hops}, Results per hop: {limit}[/dim]\n")
+    if result.returncode != 0:
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        sys.exit(result.returncode)
 
-    with Progress(
-        SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console
-    ) as progress:
-        task = progress.add_task("Analyzing code relationships...", total=None)
-        result = strategy.research(question, max_results_per_hop=limit)
-        progress.update(task, completed=True)
-
-    # Display results summary
-    console.print("\n[bold green]✓ Research Complete[/bold green]")
-    console.print(f"  Found: {len(result.chunks)} related code chunks")
-    console.print(f"  Relationships: {len(result.relationships)}")
-    console.print(f"  Entities discovered: {result.total_entities_found}")
-    console.print(f"  Hops executed: {result.hops_executed}/{hops}\n")
-
-    if not result.chunks:
-        console.print("[yellow]No relevant code found. Try rephrasing your question.[/yellow]")
-        return
-
-    # Display top chunks
-    console.print("[bold]Top Related Code:[/bold]\n")
-    for i, chunk in enumerate(result.chunks[:10], 1):
-        console.print(f"{i}. [cyan]{chunk.symbol}[/cyan]")
-        console.print(f"   {chunk.file_path}:{chunk.start_line}-{chunk.end_line}")
-        if i <= 3:  # Show code preview for top 3
-            preview = chunk.code[:200].replace("\n", "\n   ")
-            console.print(f"   [dim]{preview}...[/dim]")
-        console.print()
-
-    # Show call graph if requested
-    if graph and result.relationships:
-        call_graph = strategy.build_call_graph(result.relationships)
-        entry_points = strategy.get_entry_points(result.relationships)
-
-        console.print("\n[bold]Call Graph:[/bold]\n")
-
-        if entry_points:
-            console.print("[dim]Entry points:[/dim]")
-            for entry in entry_points[:5]:
-                console.print(f"  [green]→ {entry}[/green]")
-            console.print()
-
-        console.print("[dim]Relationships:[/dim]")
-        for entity, targets in list(call_graph.items())[:15]:
-            console.print(f"  {entity}")
-            for target in targets[:3]:
-                rel_type = target["type"].replace("_", " ")
-                console.print(f"    [dim]{rel_type}[/dim] → {target['target']}")
-
-        if len(call_graph) > 15:
-            console.print(f"\n  [dim]... and {len(call_graph) - 15} more entities[/dim]")
+    print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
 
 
 @main.command()

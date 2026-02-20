@@ -30,12 +30,18 @@ Load skill sia-code
 ## 3) Recommended agent workflow
 
 ```bash
+uv tool install chunkhound
 uvx sia-code status
 uvx sia-code init
 uvx sia-code index .
 uvx sia-code search --regex "your symbol"
 uvx sia-code research "how does X work?"
 ```
+
+Notes:
+
+- `search` and `research` are ChunkHound-backed.
+- Memory commands stay in Sia's local memory database.
 
 ## 4) Optional memory workflow
 

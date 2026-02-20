@@ -4,8 +4,8 @@ Local-first codebase intelligence for CLI workflows.
 
 Sia Code indexes your repo and lets you:
 
-- search code fast (lexical, semantic, or hybrid)
-- trace architecture with multi-hop research
+- search code fast via ChunkHound CLI (lexical or semantic)
+- trace architecture with ChunkHound research
 - store/retrieve project decisions and timeline context
 
 ## Why teams use it
@@ -31,6 +31,9 @@ sia-code --version
 ## Quick Start (2 minutes)
 
 ```bash
+# install ChunkHound CLI once
+uv tool install chunkhound
+
 # in your project
 sia-code init
 sia-code index .
@@ -53,18 +56,18 @@ sia-code status
 | `sia-code index .` | Build index |
 | `sia-code index --update` | Incremental re-index |
 | `sia-code index --clean` | Rebuild index from scratch |
-| `sia-code search "query"` | Hybrid search (default) |
-| `sia-code search --regex "pattern"` | Lexical search |
-| `sia-code research "question"` | Multi-hop relationship discovery |
+| `sia-code search "query"` | ChunkHound-backed search (default mode from config) |
+| `sia-code search --regex "pattern"` | ChunkHound lexical search |
+| `sia-code research "question"` | ChunkHound research |
 | `sia-code memory sync-git` | Import timeline/changelog from git |
 | `sia-code memory search "topic"` | Search stored project memory |
 | `sia-code config show` | Print active configuration |
 
 ## Search Modes (important)
 
-- Default command is hybrid: `sia-code search "query"`
+- Default search mode comes from `chunkhound.default_search_mode` (default: `regex`)
 - Lexical mode: `sia-code search --regex "pattern"`
-- Semantic-only mode: `sia-code search --semantic-only "query"`
+- Semantic-only mode: `sia-code search --semantic-only "query"` (requires embedding setup)
 
 Use `--no-deps` when you want only your project code.
 
