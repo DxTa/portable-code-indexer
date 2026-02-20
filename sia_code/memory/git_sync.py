@@ -63,7 +63,7 @@ class GitSyncService:
     def sync(
         self,
         since: str | None = None,
-        limit: int = 50,
+        limit: int | None = 50,
         dry_run: bool = False,
         tags_only: bool = False,
         merges_only: bool = False,
@@ -73,7 +73,7 @@ class GitSyncService:
 
         Args:
             since: Git ref to start from (e.g., 'v1.0.0', 'HEAD~50')
-            limit: Maximum number of events to process
+            limit: Maximum number of events to process (None/0 means no limit)
             dry_run: If True, don't write to backend
             tags_only: Only process tags, skip merges
             merges_only: Only process merges, skip tags
@@ -83,6 +83,7 @@ class GitSyncService:
             Dictionary with sync statistics
         """
         stats = GitSyncStats()
+        effective_limit = limit if limit is not None and limit > 0 else None
 
         # Process tags as changelogs (unless merges_only)
         if not merges_only:
@@ -127,7 +128,7 @@ class GitSyncService:
                     stats.changelogs_added += 1
 
                     # Early exit if hit limit
-                    if stats.changelogs_added >= limit:
+                    if effective_limit is not None and stats.changelogs_added >= effective_limit:
                         break
             except Exception as e:
                 stats.errors.append(f"Error processing tags: {e}")
@@ -135,7 +136,7 @@ class GitSyncService:
         # Process merge commits as timeline events (unless tags_only)
         if not tags_only:
             try:
-                merge_events = self.extractor.scan_merge_events(since=since, limit=limit)
+                merge_events = self.extractor.scan_merge_events(since=since, limit=effective_limit)
                 for event_data in merge_events:
                     # Filter by importance
                     event_importance = event_data.get("importance", "medium")
@@ -183,8 +184,56 @@ class GitSyncService:
                         )
                     stats.timeline_added += 1
 
+                    # Build changelog entries from merge commits with explicit
+                    # "Merge branch ..." subject lines.
+                    if self.extractor.is_merge_branch_message(event_data.get("summary", "")):
+                        if (
+                            effective_limit is not None
+                            and stats.changelogs_added >= effective_limit
+                        ):
+                            continue
+
+                        changelog_tag = self._merge_changelog_tag(event_data)
+                        if self._is_duplicate_changelog(changelog_tag):
+                            stats.changelogs_skipped += 1
+                            continue
+
+                        merged_commits: list[str] = []
+                        merge_commit = event_data.get("merge_commit")
+                        if merge_commit is not None:
+                            merged_commits = self.extractor.get_commits_in_merge(merge_commit)
+
+                        changelog_summary = event_data.get("summary", "")
+                        if self.summarizer and merged_commits:
+                            try:
+                                changelog_summary = self.summarizer.enhance_changelog(
+                                    changelog_tag,
+                                    changelog_summary,
+                                    merged_commits,
+                                )
+                            except Exception as e:
+                                logger.debug(f"Could not enhance merge changelog: {e}")
+
+                        commit_text = "\n".join(merged_commits)
+                        breaking_changes = self.extractor._extract_breaking_changes(commit_text)
+                        features = self.extractor._extract_features(commit_text)
+                        fixes = self.extractor._extract_fixes(commit_text)
+
+                        if not dry_run:
+                            self.backend.add_changelog(
+                                tag=changelog_tag,
+                                version=None,
+                                summary=changelog_summary,
+                                breaking_changes=breaking_changes,
+                                features=features,
+                                fixes=fixes,
+                                commit_hash=event_data.get("commit_hash"),
+                                commit_time=event_data.get("commit_time"),
+                            )
+                        stats.changelogs_added += 1
+
                     # Early exit if hit limit
-                    if stats.timeline_added >= limit:
+                    if effective_limit is not None and stats.timeline_added >= effective_limit:
                         break
             except Exception as e:
                 stats.errors.append(f"Error processing merges: {e}")
@@ -201,7 +250,7 @@ class GitSyncService:
             True if changelog with this tag exists
         """
         try:
-            existing = self.backend.get_changelogs(limit=1000)
+            existing = self.backend.get_changelogs(limit=None)
             return any(c.tag == tag for c in existing)
         except Exception:
             # If check fails, assume not duplicate to avoid data loss
@@ -219,7 +268,7 @@ class GitSyncService:
             True if event with these attributes exists
         """
         try:
-            existing = self.backend.get_timeline_events(limit=1000)
+            existing = self.backend.get_timeline_events(limit=None)
             return any(
                 e.event_type == event_type and e.from_ref == from_ref and e.to_ref == to_ref
                 for e in existing
@@ -242,3 +291,12 @@ class GitSyncService:
         event_level = importance_order.get(event_importance, 0)
         min_level = importance_order.get(min_importance, 0)
         return event_level >= min_level
+
+    def _merge_changelog_tag(self, event_data: dict[str, Any]) -> str:
+        """Build stable synthetic changelog key for merge-derived entries."""
+        commit_hash = event_data.get("commit_hash")
+        if commit_hash:
+            return f"merge:{commit_hash}"
+        return (
+            f"merge:{event_data.get('from_ref', 'unknown')}->{event_data.get('to_ref', 'unknown')}"
+        )

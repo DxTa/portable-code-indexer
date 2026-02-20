@@ -77,8 +77,10 @@ Use `--no-deps` when you want only your project code.
 
 - Scans tags into changelog entries
 - Scans merge commits into timeline events
+- For merge commits whose subject matches `Merge branch '...'`, also creates changelog entries
 - Stores `files_changed` and diff stats (`insertions`, `deletions`, `files`)
 - Optionally enhances sparse summaries using a local summarization model
+- `memory sync-git --limit 0` processes all eligible events
 
 How semantic summary generation works:
 

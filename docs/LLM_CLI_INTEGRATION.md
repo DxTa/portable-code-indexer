@@ -46,10 +46,12 @@ Notes:
 ## 4) Optional memory workflow
 
 ```bash
-uvx sia-code memory sync-git
+uvx sia-code memory sync-git --limit 0
 uvx sia-code memory search "topic"
 uvx sia-code memory add-decision "Decision title" -d "Context" -r "Reason"
 ```
+
+`memory sync-git` also derives changelog entries from merge commits whose subject matches `Merge branch '...'`.
 
 ## 5) Multiple worktrees / multiple Claude Code instances
 

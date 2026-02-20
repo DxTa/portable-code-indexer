@@ -1351,7 +1351,7 @@ def memory():
 
 @memory.command(name="sync-git")
 @click.option("--since", default="HEAD~100", help="Git ref to start from (e.g., v1.0.0, HEAD~50)")
-@click.option("--limit", type=int, default=50, help="Maximum events to process")
+@click.option("--limit", type=int, default=0, help="Maximum events to process (0 means all)")
 @click.option("--dry-run", is_flag=True, help="Preview without importing")
 @click.option("--tags-only", is_flag=True, help="Only scan tags, skip merge commits")
 @click.option("--merges-only", is_flag=True, help="Only scan merge commits, skip tags")
@@ -1384,9 +1384,10 @@ def memory_sync_git(since, limit, dry_run, tags_only, merges_only, min_importanc
         console.print(f"[cyan]Syncing git history from {since}...[/cyan]\n")
 
         sync_service = GitSyncService(backend, Path("."))
+        effective_limit = None if limit <= 0 else limit
         stats = sync_service.sync(
             since=since,
-            limit=limit,
+            limit=effective_limit,
             dry_run=dry_run,
             tags_only=tags_only,
             merges_only=merges_only,
@@ -1482,7 +1483,7 @@ def memory_add_decision(title, description, reasoning, alternatives):
     default="all",
     help="Filter decisions by status",
 )
-@click.option("--limit", type=int, default=20, help="Maximum items to show")
+@click.option("--limit", type=int, default=20, help="Maximum items to show (0 means all)")
 @click.option(
     "--format",
     "output_format",
@@ -1498,24 +1499,26 @@ def memory_list(item_type, status, limit, output_format):
 
     try:
         results = {"decisions": [], "timeline": [], "changelogs": []}
+        effective_limit = None if limit <= 0 else limit
 
         # Fetch decisions
         if item_type in ("decision", "all"):
             if status == "pending":
-                results["decisions"] = backend.list_pending_decisions(limit=limit)
+                results["decisions"] = backend.list_pending_decisions(limit=effective_limit)
             else:
                 # Get all decisions (pending + approved)
-                results["decisions"] = backend.list_pending_decisions(limit=limit * 2)
+                expanded_limit = None if effective_limit is None else effective_limit * 2
+                results["decisions"] = backend.list_pending_decisions(limit=expanded_limit)
                 if status != "all":
                     results["decisions"] = [d for d in results["decisions"] if d.status == status]
 
         # Fetch timeline events
         if item_type in ("timeline", "all"):
-            results["timeline"] = backend.get_timeline_events(limit=limit)
+            results["timeline"] = backend.get_timeline_events(limit=effective_limit)
 
         # Fetch changelogs
         if item_type in ("changelog", "all"):
-            results["changelogs"] = backend.get_changelogs(limit=limit)
+            results["changelogs"] = backend.get_changelogs(limit=effective_limit)
 
         # Output
         if output_format == "json":
@@ -1703,7 +1706,8 @@ def memory_search(query, search_type, limit):
     default="text",
     help="Output format",
 )
-def memory_timeline(since, event_type, importance, output_format):
+@click.option("--limit", type=int, default=0, help="Maximum events to show (0 means all)")
+def memory_timeline(since, event_type, importance, output_format, limit):
     """Show project timeline events.
 
     Example: sia-code memory timeline --format markdown --importance high
@@ -1713,7 +1717,7 @@ def memory_timeline(since, event_type, importance, output_format):
     backend.open_index()
 
     try:
-        events = backend.get_timeline_events(limit=100)
+        events = backend.get_timeline_events(limit=None if limit <= 0 else limit)
 
         # Apply filters
         if event_type:
@@ -1784,8 +1788,9 @@ def memory_timeline(since, event_type, importance, output_format):
     default="markdown",
     help="Output format",
 )
+@click.option("--limit", type=int, default=0, help="Maximum changelog entries (0 means all)")
 @click.option("-o", "--output", type=click.Path(), help="Save to file")
-def memory_changelog(range, output_format, output):
+def memory_changelog(range, output_format, limit, output):
     """Generate changelog from memory.
 
     Example: sia-code memory changelog v1.0.0..v2.0.0 --format markdown -o CHANGELOG.md
@@ -1795,7 +1800,7 @@ def memory_changelog(range, output_format, output):
     backend.open_index()
 
     try:
-        changelogs = backend.get_changelogs(limit=100)
+        changelogs = backend.get_changelogs(limit=None if limit <= 0 else limit)
 
         # Filter by range if provided
         if range:

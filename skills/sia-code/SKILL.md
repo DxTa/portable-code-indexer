@@ -70,7 +70,7 @@ uvx sia-code research "how is config loaded?"
 
 ```bash
 # import timeline/changelogs from git
-uvx sia-code memory sync-git
+uvx sia-code memory sync-git --limit 0
 
 # store a pending decision
 uvx sia-code memory add-decision "Adopt sqlite-vec by default" \
@@ -84,6 +84,11 @@ uvx sia-code memory approve 1 --category architecture
 # recall context
 uvx sia-code memory search "backend default" --type all
 ```
+
+Notes:
+
+- `memory sync-git` derives changelog entries from merge commits whose subject matches `Merge branch '...'`.
+- Use `--limit 0` when you want to process all eligible git events.
 
 ## Agent-Friendly Session Pattern
 
