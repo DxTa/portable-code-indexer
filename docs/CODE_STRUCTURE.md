@@ -21,8 +21,8 @@ sia_code/
   core/                  # shared models and enums
   parser/                # AST concept extraction and chunking
   indexer/               # indexing orchestration, hash cache, metrics
-  search/                # query pre-processing and multi-hop logic
-  storage/               # sqlite-vec + legacy usearch backends
+  search/                # ChunkHound CLI bridge + query helpers
+  storage/               # memory persistence + legacy local search backends
   memory/                # git sync, timeline, changelog, decision flow
   embed_server/          # optional embedding daemon
 ```
@@ -35,7 +35,8 @@ sia_code/
 | Change default behavior | `sia_code/config.py`, `sia_code/cli.py` |
 | Tune indexing | `sia_code/indexer/coordinator.py`, `sia_code/indexer/chunk_index.py` |
 | Tune chunking | `sia_code/parser/chunker.py`, `sia_code/parser/concepts.py` |
-| Search ranking/filtering | `sia_code/storage/sqlite_vec_backend.py`, `sia_code/storage/usearch_backend.py` |
+| ChunkHound search/research bridge | `sia_code/search/chunkhound_cli.py`, `sia_code/cli.py` |
+| Legacy/local search ranking (interactive) | `sia_code/storage/sqlite_vec_backend.py`, `sia_code/storage/usearch_backend.py` |
 | Backend selection logic | `sia_code/storage/factory.py` |
 | Memory commands and sync | `sia_code/memory/git_sync.py`, `sia_code/memory/git_events.py`, `sia_code/cli.py` |
 

@@ -46,7 +46,7 @@ sia-code config set chunkhound.default_search_mode semantic
 
 - Use `--format json` for scripts/agents.
 - Use `--format table` for quick terminal scanning.
-- Use `--no-deps` in large repos to reduce noise.
+- Use tighter regex terms or path-like query text when results are noisy.
 
 ## Related Docs
 

@@ -8,6 +8,8 @@ Sia Code indexes your repo and lets you:
 - trace architecture with ChunkHound research
 - store/retrieve project decisions and timeline context
 
+Search and research are hard-switched to ChunkHound CLI. Sia keeps index orchestration and memory storage local.
+
 ## Why teams use it
 
 - Works directly on local code (`.sia-code/` index per repo/worktree)
@@ -67,9 +69,9 @@ sia-code status
 
 - Default search mode comes from `chunkhound.default_search_mode` (default: `regex`)
 - Lexical mode: `sia-code search --regex "pattern"`
-- Semantic-only mode: `sia-code search --semantic-only "query"` (requires embedding setup)
+- Semantic-only mode: `sia-code search --semantic-only "query"` (requires ChunkHound semantic setup)
 
-Use `--no-deps` when you want only your project code.
+Dependency visibility flags (`--no-deps`, `--deps-only`) are currently compatibility no-ops with ChunkHound-backed search.
 
 ## Git Sync Memory + Semantic Changelog
 
@@ -116,8 +118,8 @@ Useful commands:
 
 ```bash
 sia-code config show
-sia-code config get search.vector_weight
-sia-code config set search.vector_weight 0.0
+sia-code config get chunkhound.default_search_mode
+sia-code config set chunkhound.default_search_mode semantic
 ```
 
 Note: backend selection is auto by default (`sqlite-vec` for new indexes, legacy `usearch` supported).

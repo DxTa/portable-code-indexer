@@ -48,15 +48,15 @@ sia-code status
 | `embed status` | Show daemon status |
 | `embed stop` | Stop daemon |
 
-Use daemon when you rely heavily on hybrid/semantic search or memory embedding operations.
+Use daemon when you rely heavily on memory embedding operations.
 
 ## Config Commands
 
 ```bash
 sia-code config show
 sia-code config path
-sia-code config get search.vector_weight
-sia-code config set search.vector_weight 0.0
+sia-code config get chunkhound.default_search_mode
+sia-code config set chunkhound.default_search_mode semantic
 ```
 
 ## Output Formats
@@ -71,7 +71,7 @@ sia-code config set search.vector_weight 0.0
 - First index: `sia-code index .`
 - Ongoing work: `sia-code index --update`
 - Exact symbols: `sia-code search --regex "pattern"`
-- Project-only focus: `--no-deps`
+- If output is noisy: tighten regex terms or add path-like query terms
 - Architecture questions: `sia-code research "..."`
 
 ## Related Docs

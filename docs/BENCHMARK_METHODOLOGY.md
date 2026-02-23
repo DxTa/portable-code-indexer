@@ -2,10 +2,12 @@
 
 This project uses RepoEval-style retrieval evaluation for search quality checks.
 
+> Note: The benchmark harness in `tests/benchmarks/` targets legacy in-process retrievers. ChunkHound-backed CLI search/research should be benchmarked separately as end-to-end CLI runs.
+
 ## Scope
 
 - Evaluate retrieval quality (not answer generation)
-- Compare lexical, hybrid, and semantic settings
+- Compare lexical, hybrid, and semantic settings in the legacy retriever stack
 - Use consistent query set and top-k metrics
 
 ## Minimal Reproduction Flow
@@ -23,7 +25,7 @@ pkgx python tests/benchmarks/run_full_repoeval_benchmark.py
 
 - Recall@k (especially Recall@5)
 - indexing time and query latency
-- configuration used (`vector_weight`, embedding settings)
+- configuration used (`chunkhound.default_search_mode` for CLI runs, `vector_weight` for legacy runs, embedding settings)
 
 ## Fairness Rules
 

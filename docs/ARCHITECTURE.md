@@ -11,9 +11,9 @@ Sia Code has two core pipelines:
    - write lexical/vector indexes
 
 2. **Query pipeline**
-   - preprocess query
-   - run lexical and/or semantic search
-   - rank + return chunk matches
+   - resolve mode and build ChunkHound CLI command
+   - execute ChunkHound search/research
+   - parse and render results in Sia CLI formats
 
 ## Storage Model
 
@@ -34,17 +34,18 @@ Backend selection:
 - `cli.py`: command entry and orchestration
 - `indexer/coordinator.py`: full/incremental indexing lifecycle
 - `parser/*`: language detection, concept extraction, chunk building
-- `storage/*`: search execution and persistence
+- `search/chunkhound_cli.py`: ChunkHound command bridge and output parsing
+- `storage/*`: memory persistence plus legacy/local search paths
 - `memory/*`: git-to-memory sync and timeline/changelog tooling
 - `embed_server/*`: optional shared embed daemon
 
 ## Search Architecture
 
-- **Hybrid (default):** lexical + semantic
-- **Lexical (`--regex`):** exact token/symbol heavy queries
-- **Semantic (`--semantic-only`):** concept similarity only
+- **Default (`search`)**: mode from `chunkhound.default_search_mode` (default `regex`)
+- **Lexical (`--regex`)**: exact token/symbol heavy queries
+- **Semantic (`--semantic-only`)**: ChunkHound semantic mode
 
-Flags like `--no-deps` and `--deps-only` control dependency-code visibility.
+Flags like `--no-deps` and `--deps-only` are accepted for compatibility but currently no-op with ChunkHound-backed search.
 
 ## Design Goals
 

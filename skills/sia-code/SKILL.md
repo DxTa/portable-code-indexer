@@ -1,9 +1,9 @@
 ---
 name: sia-code
-description: Compact local-first code search skill for CLI agents using BM25, optional semantic search, multi-hop research, and project memory.
+description: Compact local-first code search skill for CLI agents using ChunkHound-backed search/research and Sia project memory.
 license: MIT
 compatibility: opencode
-version: 0.7.0
+version: 0.7.1
 ---
 
 # Sia-Code Skill (Compact)
