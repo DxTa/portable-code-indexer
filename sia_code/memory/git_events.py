@@ -9,6 +9,13 @@ from git import Repo
 from git.exc import GitCommandError, InvalidGitRepositoryError
 
 
+def _coerce_text(value: str | bytes | Any) -> str:
+    """Normalize git message-like values into text."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 class GitEventExtractor:
     """Extract timeline events and changelogs from git repository."""
 
@@ -74,12 +81,14 @@ class GitEventExtractor:
 
         return changelogs
 
-    def scan_merge_events(self, since: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    def scan_merge_events(
+        self, since: str | None = None, limit: int | None = 50
+    ) -> list[dict[str, Any]]:
         """Extract merge commits as timeline events.
 
         Args:
             since: Git ref to start from (e.g., 'HEAD~100' or 'v1.0.0')
-            limit: Maximum number of merge events to return
+            limit: Maximum number of merge events to return (None for all)
 
         Returns:
             List of timeline event dictionaries
@@ -93,21 +102,23 @@ class GitEventExtractor:
             commit_range = "HEAD"
 
         try:
-            commits = list(self.repo.iter_commits(commit_range, max_count=limit * 2))
+            max_count = limit * 2 if limit is not None and limit > 0 else None
+            commits = list(self.repo.iter_commits(commit_range, max_count=max_count))
         except GitCommandError:
             # If range is invalid, just get HEAD commits
-            commits = list(self.repo.iter_commits("HEAD", max_count=limit * 2))
+            max_count = limit * 2 if limit is not None and limit > 0 else None
+            commits = list(self.repo.iter_commits("HEAD", max_count=max_count))
 
         for commit in commits:
             # Check if it's a merge commit (has multiple parents)
             if len(commit.parents) > 1:
                 # Get branch names from commit message
-                from_branch, to_branch = self._extract_merge_branches(commit.message)
+                from_branch, to_branch = self._extract_merge_branches(_coerce_text(commit.message))
 
                 # Get files changed
                 files_changed = []
                 try:
-                    files_changed = [item.a_path for item in commit.stats.files.keys()]
+                    files_changed = [str(path) for path in commit.stats.files.keys()]
                 except Exception:
                     pass
 
@@ -122,7 +133,7 @@ class GitEventExtractor:
                     "event_type": "merge",
                     "from_ref": from_branch or commit.parents[1].hexsha[:7],
                     "to_ref": to_branch or commit.parents[0].hexsha[:7],
-                    "summary": commit.summary,
+                    "summary": _coerce_text(commit.summary),
                     "files_changed": files_changed[:20],  # Limit to avoid huge lists
                     "diff_stats": diff_stats,
                     "importance": self._determine_importance(diff_stats),
@@ -134,7 +145,7 @@ class GitEventExtractor:
 
                 events.append(event)
 
-                if len(events) >= limit:
+                if limit is not None and limit > 0 and len(events) >= limit:
                     break
 
         return events
@@ -264,6 +275,10 @@ class GitEventExtractor:
 
         return (None, None)
 
+    def is_merge_branch_message(self, message: str) -> bool:
+        """Return True when commit message follows 'Merge branch ...' pattern."""
+        return bool(re.search(r"^Merge\s+branch\s+'[^']+'", (message or "").strip()))
+
     def _determine_importance(self, diff_stats: dict[str, Any]) -> str:
         """Determine importance based on diff statistics.
 
@@ -296,7 +311,7 @@ class GitEventExtractor:
         try:
             commits = list(self.repo.iter_commits(f"{from_tag}..{to_tag}"))
             # Return first line of each commit message
-            return [c.message.strip().split("\n")[0] for c in commits]
+            return [_coerce_text(c.message).strip().split("\n")[0] for c in commits]
         except Exception as e:
             logger = logging.getLogger(__name__)
             logger.debug(f"Could not get commits between {from_tag} and {to_tag}: {e}")
@@ -321,7 +336,7 @@ class GitEventExtractor:
                 commits = list(
                     self.repo.iter_commits(f"{base[0].hexsha}..{merge_commit.parents[1].hexsha}")
                 )
-                return [c.message.strip().split("\n")[0] for c in commits]
+                return [_coerce_text(c.message).strip().split("\n")[0] for c in commits]
         except Exception as e:
             logger = logging.getLogger(__name__)
             logger.debug(f"Could not get commits for merge {merge_commit.hexsha[:7]}: {e}")
@@ -347,14 +362,14 @@ def scan_git_tags(repo_path: str | Path) -> list[dict[str, Any]]:
 
 
 def scan_merge_events(
-    repo_path: str | Path, since: str | None = None, limit: int = 50
+    repo_path: str | Path, since: str | None = None, limit: int | None = 50
 ) -> list[dict[str, Any]]:
     """Extract merge commits as timeline events.
 
     Args:
         repo_path: Path to git repository
         since: Git ref to start from
-        limit: Maximum number of events
+        limit: Maximum number of events (None for all)
 
     Returns:
         List of timeline event dictionaries

@@ -5,19 +5,21 @@
 - RepoEval Recall@5: **89.9%** (reported)
 - Improvement over cAST baseline: **+12.9 points** (reported)
 
+> Note: These numbers are historical baselines from legacy in-process retrievers. Current CLI `search` and `research` are ChunkHound-backed.
+
 ## Practical Takeaways
 
 - Lexical-heavy search performs strongly for code identifiers.
-- Hybrid can still be useful for natural-language style queries.
+- For legacy retriever experiments, hybrid can still help natural-language style queries.
 - For daily debugging, `--regex` is often the fastest path.
 
 ## Recommended Starting Config
 
 ```bash
-sia-code config set search.vector_weight 0.0
+sia-code config set chunkhound.default_search_mode regex
 ```
 
-Then adjust only if your query style is mostly conceptual.
+For legacy benchmark experiments, `search.vector_weight` remains available in the in-process retriever stack.
 
 ## Where to find raw benchmark tooling
 

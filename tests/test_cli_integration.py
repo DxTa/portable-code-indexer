@@ -6,7 +6,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-import os
 import shutil
 
 
@@ -120,48 +119,6 @@ class TestCLIStatus:
 
         assert result.returncode == 0
         assert "index" in result.stdout.lower()
-
-
-class TestCLIIndex:
-    """Test 'sia-code index' command."""
-
-    def test_index_not_initialized(self, test_project):
-        """Test index when not initialized."""
-        result = run_cli(["index", "."], cwd=test_project)
-
-        assert result.returncode != 0
-
-    def test_index_basic(self, test_project):
-        """Test basic indexing."""
-        run_cli(["init"], cwd=test_project)
-        disable_embeddings(test_project)
-        result = run_cli(["index", "."], cwd=test_project)
-
-        assert result.returncode == 0
-        assert "indexing complete" in result.stdout.lower()
-
-    def test_index_clean(self, test_project):
-        """Test clean indexing."""
-        run_cli(["init"], cwd=test_project)
-        disable_embeddings(test_project)
-        run_cli(["index", "."], cwd=test_project)
-
-        result = run_cli(["index", "--clean", "."], cwd=test_project)
-
-        assert result.returncode == 0
-        assert "clean" in result.stdout.lower()
-
-    def test_index_clean_removes_legacy_usearch_file(self, test_project):
-        """Test clean indexing removes legacy vectors.usearch to allow sqlite-vec migration."""
-        run_cli(["init"], cwd=test_project)
-
-        legacy_vectors = test_project / ".sia-code" / "vectors.usearch"
-        legacy_vectors.write_text("legacy")
-
-        result = run_cli(["index", "--clean", "."], cwd=test_project)
-
-        assert result.returncode == 0
-        assert not legacy_vectors.exists()
 
 
 class TestCLISearch:

@@ -31,6 +31,7 @@ sia-code memory search "Adopt X" --type decision
 
 - Tags become changelog memory entries
 - Merge commits become timeline memory events
+- Merge commits whose subject matches `Merge branch '...'` also become changelog entries
 - Each event captures changed files and diff stats
 - Duplicate events are skipped automatically
 
@@ -68,6 +69,11 @@ Notes:
 | `memory timeline` | view timeline with filters |
 | `memory changelog` | render changelog text/json/markdown |
 | `memory export` / `memory import` | backup/restore memory data |
+
+Limit behavior:
+
+- `memory sync-git --limit 0` processes all eligible events
+- `memory list --limit 0`, `memory timeline --limit 0`, and `memory changelog --limit 0` return all rows
 
 ## Good Practices
 

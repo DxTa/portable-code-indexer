@@ -214,6 +214,117 @@ class TestGitSyncService:
         assert sync_service._meets_importance_threshold("medium", "medium") is True
         assert sync_service._meets_importance_threshold("low", "high") is False
 
+    def test_merge_branch_generates_commit_based_changelog(self, sync_service, mock_backend):
+        """Merge commits with 'Merge branch' message should create changelog entries."""
+        merge_event = {
+            "event_type": "merge",
+            "from_ref": "feat/location-mailing-list",
+            "to_ref": "develop",
+            "summary": "Merge branch 'feat/location-mailing-list' into 'develop'",
+            "files_changed": ["src/a.ts"],
+            "diff_stats": {"files": 1, "insertions": 10, "deletions": 2},
+            "importance": "medium",
+            "commit_hash": "abc123",
+            "commit_time": datetime(2026, 1, 1, 12, 0, 0),
+            "merge_commit": object(),
+        }
+
+        with patch.object(sync_service.extractor, "scan_git_tags", return_value=[]):
+            with patch.object(
+                sync_service.extractor, "scan_merge_events", return_value=[merge_event]
+            ):
+                with patch.object(
+                    sync_service.extractor,
+                    "get_commits_in_merge",
+                    return_value=[
+                        "feat: add mailing list support",
+                        "fix: resolve location sorting",
+                        "BREAKING CHANGE: rename location payload",
+                    ],
+                ):
+                    stats = sync_service.sync(merges_only=True)
+
+        assert stats["changelogs_added"] == 1
+        assert mock_backend.add_changelog.called
+        args = mock_backend.add_changelog.call_args.kwargs
+        assert args["tag"] == "merge:abc123"
+        assert "feat: add mailing list support" in args["features"]
+        assert "fix: resolve location sorting" in args["fixes"]
+        assert "BREAKING CHANGE: rename location payload" in args["breaking_changes"]
+
+    def test_non_merge_branch_messages_do_not_generate_commit_changelog(
+        self, sync_service, mock_backend
+    ):
+        """Merge commits without 'Merge branch' message should skip commit changelogs."""
+        merge_event = {
+            "event_type": "merge",
+            "from_ref": "feature-x",
+            "to_ref": "main",
+            "summary": "Merge pull request #123 from org/feature-x",
+            "files_changed": ["src/a.ts"],
+            "diff_stats": {"files": 1, "insertions": 10, "deletions": 2},
+            "importance": "medium",
+            "commit_hash": "def456",
+            "commit_time": datetime(2026, 1, 1, 12, 0, 0),
+            "merge_commit": object(),
+        }
+
+        with patch.object(sync_service.extractor, "scan_git_tags", return_value=[]):
+            with patch.object(
+                sync_service.extractor, "scan_merge_events", return_value=[merge_event]
+            ):
+                with patch.object(
+                    sync_service.extractor,
+                    "get_commits_in_merge",
+                    return_value=["feat: should be ignored"],
+                ):
+                    stats = sync_service.sync(merges_only=True)
+
+        assert stats["changelogs_added"] == 0
+        mock_backend.add_changelog.assert_not_called()
+
+    def test_sync_limit_zero_means_unbounded(self, sync_service, mock_backend):
+        """A limit of 0 should process all available events."""
+        merge_events = [
+            {
+                "event_type": "merge",
+                "from_ref": "a",
+                "to_ref": "b",
+                "summary": "Merge branch 'a' into 'b'",
+                "files_changed": [],
+                "diff_stats": {},
+                "importance": "medium",
+                "commit_hash": "aaa111",
+                "commit_time": datetime(2026, 1, 1, 12, 0, 0),
+                "merge_commit": object(),
+            },
+            {
+                "event_type": "merge",
+                "from_ref": "c",
+                "to_ref": "d",
+                "summary": "Merge branch 'c' into 'd'",
+                "files_changed": [],
+                "diff_stats": {},
+                "importance": "medium",
+                "commit_hash": "bbb222",
+                "commit_time": datetime(2026, 1, 1, 12, 0, 0),
+                "merge_commit": object(),
+            },
+        ]
+
+        with patch.object(sync_service.extractor, "scan_git_tags", return_value=[]):
+            with patch.object(
+                sync_service.extractor, "scan_merge_events", return_value=merge_events
+            ):
+                with patch.object(
+                    sync_service.extractor,
+                    "get_commits_in_merge",
+                    return_value=["fix: keep all"],
+                ):
+                    stats = sync_service.sync(limit=0, merges_only=True)
+
+        assert stats["timeline_added"] == 2
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

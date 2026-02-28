@@ -30,6 +30,7 @@ Load skill sia-code
 ## 3) Recommended agent workflow
 
 ```bash
+uv tool install chunkhound
 uvx sia-code status
 uvx sia-code init
 uvx sia-code index .
@@ -37,13 +38,20 @@ uvx sia-code search --regex "your symbol"
 uvx sia-code research "how does X work?"
 ```
 
+Notes:
+
+- `search` and `research` are ChunkHound-backed.
+- Memory commands stay in Sia's local memory database.
+
 ## 4) Optional memory workflow
 
 ```bash
-uvx sia-code memory sync-git
+uvx sia-code memory sync-git --limit 0
 uvx sia-code memory search "topic"
 uvx sia-code memory add-decision "Decision title" -d "Context" -r "Reason"
 ```
+
+`memory sync-git` also derives changelog entries from merge commits whose subject matches `Merge branch '...'`.
 
 ## 5) Multiple worktrees / multiple Claude Code instances
 

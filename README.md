@@ -4,9 +4,11 @@ Local-first codebase intelligence for CLI workflows.
 
 Sia Code indexes your repo and lets you:
 
-- search code fast (lexical, semantic, or hybrid)
-- trace architecture with multi-hop research
+- search code fast via ChunkHound CLI (lexical or semantic)
+- trace architecture with ChunkHound research
 - store/retrieve project decisions and timeline context
+
+Search and research are hard-switched to ChunkHound CLI. Sia keeps index orchestration and memory storage local.
 
 ## Why teams use it
 
@@ -31,6 +33,9 @@ sia-code --version
 ## Quick Start (2 minutes)
 
 ```bash
+# install ChunkHound CLI once
+uv tool install chunkhound
+
 # in your project
 sia-code init
 sia-code index .
@@ -53,20 +58,20 @@ sia-code status
 | `sia-code index .` | Build index |
 | `sia-code index --update` | Incremental re-index |
 | `sia-code index --clean` | Rebuild index from scratch |
-| `sia-code search "query"` | Hybrid search (default) |
-| `sia-code search --regex "pattern"` | Lexical search |
-| `sia-code research "question"` | Multi-hop relationship discovery |
+| `sia-code search "query"` | ChunkHound-backed search (default mode from config) |
+| `sia-code search --regex "pattern"` | ChunkHound lexical search |
+| `sia-code research "question"` | ChunkHound research |
 | `sia-code memory sync-git` | Import timeline/changelog from git |
 | `sia-code memory search "topic"` | Search stored project memory |
 | `sia-code config show` | Print active configuration |
 
 ## Search Modes (important)
 
-- Default command is hybrid: `sia-code search "query"`
+- Default search mode comes from `chunkhound.default_search_mode` (default: `regex`)
 - Lexical mode: `sia-code search --regex "pattern"`
-- Semantic-only mode: `sia-code search --semantic-only "query"`
+- Semantic-only mode: `sia-code search --semantic-only "query"` (requires ChunkHound semantic setup)
 
-Use `--no-deps` when you want only your project code.
+Dependency visibility flags (`--no-deps`, `--deps-only`) are currently compatibility no-ops with ChunkHound-backed search.
 
 ## Git Sync Memory + Semantic Changelog
 
@@ -74,8 +79,10 @@ Use `--no-deps` when you want only your project code.
 
 - Scans tags into changelog entries
 - Scans merge commits into timeline events
+- For merge commits whose subject matches `Merge branch '...'`, also creates changelog entries
 - Stores `files_changed` and diff stats (`insertions`, `deletions`, `files`)
 - Optionally enhances sparse summaries using a local summarization model
+- `memory sync-git --limit 0` processes all eligible events
 
 How semantic summary generation works:
 
@@ -111,8 +118,8 @@ Useful commands:
 
 ```bash
 sia-code config show
-sia-code config get search.vector_weight
-sia-code config set search.vector_weight 0.0
+sia-code config get chunkhound.default_search_mode
+sia-code config set chunkhound.default_search_mode semantic
 ```
 
 Note: backend selection is auto by default (`sqlite-vec` for new indexes, legacy `usearch` supported).

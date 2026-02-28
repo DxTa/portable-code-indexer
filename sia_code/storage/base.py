@@ -195,11 +195,11 @@ class StorageBackend(ABC):
         ...
 
     @abstractmethod
-    def list_pending_decisions(self, limit: int = 20) -> list[Decision]:
+    def list_pending_decisions(self, limit: int | None = 20) -> list[Decision]:
         """List oldest pending decisions for review.
 
         Args:
-            limit: Maximum number of decisions to return
+            limit: Maximum number of decisions to return (None for all)
 
         Returns:
             List of pending decisions, oldest first
@@ -284,14 +284,14 @@ class StorageBackend(ABC):
 
     @abstractmethod
     def get_timeline_events(
-        self, from_ref: str | None = None, to_ref: str | None = None, limit: int = 20
+        self, from_ref: str | None = None, to_ref: str | None = None, limit: int | None = 20
     ) -> list[TimelineEvent]:
         """Get timeline events.
 
         Args:
             from_ref: Filter by starting ref
             to_ref: Filter by ending ref
-            limit: Maximum number of events to return
+            limit: Maximum number of events to return (None for all)
 
         Returns:
             List of timeline events
@@ -299,11 +299,11 @@ class StorageBackend(ABC):
         ...
 
     @abstractmethod
-    def get_changelogs(self, limit: int = 20) -> list[ChangelogEntry]:
+    def get_changelogs(self, limit: int | None = 20) -> list[ChangelogEntry]:
         """Get changelog entries.
 
         Args:
-            limit: Maximum number of entries to return
+            limit: Maximum number of entries to return (None for all)
 
         Returns:
             List of changelog entries, newest first

@@ -1549,11 +1549,11 @@ class SqliteVecBackend(StorageBackend):
         )
         self.conn.commit()
 
-    def list_pending_decisions(self, limit: int = 20) -> list[Decision]:
+    def list_pending_decisions(self, limit: int | None = 20) -> list[Decision]:
         """List oldest pending decisions for review.
 
         Args:
-            limit: Maximum number to return
+            limit: Maximum number to return (None for all)
 
         Returns:
             List of pending decisions, oldest first
@@ -1562,17 +1562,18 @@ class SqliteVecBackend(StorageBackend):
             raise RuntimeError("Index not initialized")
 
         cursor = self.conn.cursor()
-        cursor.execute(
-            """
-            SELECT id, session_id, title, description, reasoning, alternatives, 
+        query = """
+            SELECT id, session_id, title, description, reasoning, alternatives,
                    status, category, commit_hash, commit_time, created_at, approved_at
             FROM decisions
             WHERE status = 'pending'
             ORDER BY created_at ASC
-            LIMIT ?
-        """,
-            (limit,),
-        )
+        """
+        params: list[Any] = []
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+        cursor.execute(query, params)
 
         decisions = []
         for row in cursor.fetchall():
@@ -1766,14 +1767,14 @@ class SqliteVecBackend(StorageBackend):
         return changelog_id
 
     def get_timeline_events(
-        self, from_ref: str | None = None, to_ref: str | None = None, limit: int = 20
+        self, from_ref: str | None = None, to_ref: str | None = None, limit: int | None = 20
     ) -> list[TimelineEvent]:
         """Get timeline events.
 
         Args:
             from_ref: Filter by starting ref
             to_ref: Filter by ending ref
-            limit: Maximum number to return
+            limit: Maximum number to return (None for all)
 
         Returns:
             List of timeline events
@@ -1795,19 +1796,18 @@ class SqliteVecBackend(StorageBackend):
             params.append(to_ref)
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        params.append(limit)
-
-        cursor.execute(
-            f"""
+        query = f"""
             SELECT id, event_type, from_ref, to_ref, summary, files_changed, diff_stats, importance,
                    commit_hash, commit_time, created_at
             FROM timeline
             {where_clause}
             ORDER BY created_at DESC
-            LIMIT ?
-        """,
-            params,
-        )
+        """
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        cursor.execute(query, params)
 
         events = []
         for row in cursor.fetchall():
@@ -1833,11 +1833,11 @@ class SqliteVecBackend(StorageBackend):
 
         return events
 
-    def get_changelogs(self, limit: int = 20) -> list[ChangelogEntry]:
+    def get_changelogs(self, limit: int | None = 20) -> list[ChangelogEntry]:
         """Get changelog entries.
 
         Args:
-            limit: Maximum number to return
+            limit: Maximum number to return (None for all)
 
         Returns:
             List of changelog entries, newest first
@@ -1846,16 +1846,17 @@ class SqliteVecBackend(StorageBackend):
             raise RuntimeError("Index not initialized")
 
         cursor = self.conn.cursor()
-        cursor.execute(
-            """
+        query = """
             SELECT id, tag, version, date, summary, breaking_changes, features, fixes,
                    commit_hash, commit_time, created_at
             FROM changelogs
             ORDER BY date DESC
-            LIMIT ?
-        """,
-            (limit,),
-        )
+        """
+        params: list[Any] = []
+        if limit is not None and limit > 0:
+            query += " LIMIT ?"
+            params.append(limit)
+        cursor.execute(query, params)
 
         changelogs = []
         for row in cursor.fetchall():
@@ -2087,12 +2088,12 @@ class SqliteVecBackend(StorageBackend):
 
         # Timeline events
         if include_timeline:
-            timeline = self.get_timeline_events(limit=100)
+            timeline = self.get_timeline_events(limit=None)
             memory["timeline"] = [t.to_dict() for t in timeline]
 
         # Changelogs
         if include_changelogs:
-            changelogs = self.get_changelogs(limit=100)
+            changelogs = self.get_changelogs(limit=None)
             memory["changelogs"] = [c.to_dict() for c in changelogs]
 
         # Approved decisions
@@ -2124,7 +2125,7 @@ class SqliteVecBackend(StorageBackend):
 
         # Pending decisions (optional)
         if include_pending:
-            pending = self.list_pending_decisions(limit=100)
+            pending = self.list_pending_decisions(limit=None)
             memory["pending_decisions"] = [
                 {
                     "id": f"decision:{d.id}",
